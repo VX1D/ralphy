@@ -12,7 +12,7 @@ set -euo pipefail
 # CONFIGURATION & DEFAULTS
 # ============================================
 
-VERSION="4.0.0"
+VERSION="4.3.0"
 
 # Ralphy config directory
 RALPHY_DIR=".ralphy"
