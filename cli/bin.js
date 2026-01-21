@@ -70,11 +70,8 @@ function main() {
 				let result;
 				if (isWindows) {
 					// On Windows, use cmd.exe /c to run .cmd files
-					// Arguments with spaces need to be quoted for cmd.exe
-					const quotedUserArgs = userArgs.map(arg =>
-						arg.includes(" ") ? `"${arg}"` : arg
-					);
-					result = spawnSync("cmd.exe", ["/c", runner, ...runnerArgs, ...quotedUserArgs], {
+					// Node.js handles argument escaping when passed as array
+					result = spawnSync("cmd.exe", ["/c", runner, ...runnerArgs, ...userArgs], {
 						stdio: "inherit",
 						cwd: process.cwd(),
 					});

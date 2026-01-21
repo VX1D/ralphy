@@ -1,4 +1,4 @@
-import { execSync, spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import type { AIEngine, AIResult, EngineOptions, ProgressCallback } from "./types.ts";
 
 // Check if running in Bun
@@ -11,8 +11,9 @@ const isWindows = process.platform === "win32";
 function resolveCommand(command: string): string {
 	if (!isWindows || isBun) return command;
 	try {
-		const result = execSync(`where ${command}`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
-		const paths = result.trim().split(/\r?\n/);
+		const result = spawnSync("where", [command], { encoding: "utf8", stdio: "pipe" });
+		if (result.status !== 0) return command;
+		const paths = result.stdout.trim().split(/\r?\n/);
 		// Return first path (the one that would be executed)
 		return paths[0] || command;
 	} catch {
