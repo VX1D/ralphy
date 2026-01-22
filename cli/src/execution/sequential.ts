@@ -31,6 +31,8 @@ export interface ExecutionOptions {
 	modelOverride?: string;
 	/** Skip automatic branch merging after parallel execution */
 	skipMerge?: boolean;
+	/** Use lightweight sandboxes instead of git worktrees for parallel execution */
+	useSandbox?: boolean;
 }
 
 export interface ExecutionResult {

@@ -35,6 +35,7 @@ export function createProgram(): Command {
     .option("--max-retries <n>", "Maximum retries per task", "3")
     .option("--retry-delay <n>", "Delay between retries in seconds", "5")
     .option("--parallel", "Run tasks in parallel using worktrees")
+    .option("--sandbox", "Use lightweight sandboxes instead of git worktrees (faster for large repos)")
     .option("--max-parallel <n>", "Maximum parallel agents", "3")
     .option("--branch-per-task", "Create a branch for each task")
     .option("--base-branch <branch>", "Base branch for PRs")
@@ -142,6 +143,7 @@ export function parseArgs(args: string[]): {
           : "auto",
     modelOverride,
     skipMerge: opts.merge === false,
+    useSandbox: opts.sandbox || false,
   };
 
   return {

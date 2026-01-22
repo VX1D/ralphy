@@ -117,6 +117,7 @@ export async function runLoop(options: RuntimeOptions): Promise<void> {
 			prdFile: options.prdFile,
 			prdIsFolder: options.prdIsFolder,
 			activeSettings,
+			useSandbox: options.useSandbox,
 		});
 	} else {
 		result = await runSequential({
