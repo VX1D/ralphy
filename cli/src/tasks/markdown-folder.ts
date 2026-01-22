@@ -3,6 +3,13 @@ import { basename, join } from "node:path";
 import type { Task, TaskSource } from "./types.ts";
 
 /**
+ * Read file content and normalize line endings to Unix format
+ */
+function readFileNormalized(filePath: string): string {
+	return readFileSync(filePath, "utf-8").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+/**
  * Markdown folder task source - reads tasks from multiple markdown files in a folder
  * Each task ID includes the source file for proper tracking: "filename.md:lineNumber"
  */
@@ -66,7 +73,7 @@ export class MarkdownFolderTaskSource implements TaskSource {
 		const allTasks: Task[] = [];
 
 		for (const filePath of this.markdownFiles) {
-			const content = readFileSync(filePath, "utf-8");
+			const content = readFileNormalized(filePath);
 			const lines = content.split("\n");
 
 			for (let i = 0; i < lines.length; i++) {
@@ -94,7 +101,7 @@ export class MarkdownFolderTaskSource implements TaskSource {
 
 	async markComplete(id: string): Promise<void> {
 		const { filePath, lineNumber } = this.parseTaskId(id);
-		const content = readFileSync(filePath, "utf-8");
+		const content = readFileNormalized(filePath);
 		const lines = content.split("\n");
 		const lineIndex = lineNumber - 1;
 
@@ -109,7 +116,7 @@ export class MarkdownFolderTaskSource implements TaskSource {
 		let count = 0;
 
 		for (const filePath of this.markdownFiles) {
-			const content = readFileSync(filePath, "utf-8");
+			const content = readFileNormalized(filePath);
 			const matches = content.match(/^- \[ \] /gm);
 			count += matches?.length || 0;
 		}
@@ -121,7 +128,7 @@ export class MarkdownFolderTaskSource implements TaskSource {
 		let count = 0;
 
 		for (const filePath of this.markdownFiles) {
-			const content = readFileSync(filePath, "utf-8");
+			const content = readFileNormalized(filePath);
 			const matches = content.match(/^- \[x\] /gim);
 			count += matches?.length || 0;
 		}

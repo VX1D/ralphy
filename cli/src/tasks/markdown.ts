@@ -2,6 +2,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { Task, TaskSource } from "./types.ts";
 
 /**
+ * Read file content and normalize line endings to Unix format
+ */
+function readFileNormalized(filePath: string): string {
+	return readFileSync(filePath, "utf-8").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+/**
  * Markdown task source - reads tasks from markdown files with checkbox format
  * Format: "- [ ] Task description" (incomplete) or "- [x] Task description" (complete)
  */
@@ -14,7 +21,7 @@ export class MarkdownTaskSource implements TaskSource {
 	}
 
 	async getAllTasks(): Promise<Task[]> {
-		const content = readFileSync(this.filePath, "utf-8");
+		const content = readFileNormalized(this.filePath);
 		const tasks: Task[] = [];
 		const lines = content.split("\n");
 
@@ -41,7 +48,7 @@ export class MarkdownTaskSource implements TaskSource {
 	}
 
 	async markComplete(id: string): Promise<void> {
-		const content = readFileSync(this.filePath, "utf-8");
+		const content = readFileNormalized(this.filePath);
 		const lines = content.split("\n");
 		const lineNumber = Number.parseInt(id, 10) - 1;
 
@@ -53,13 +60,13 @@ export class MarkdownTaskSource implements TaskSource {
 	}
 
 	async countRemaining(): Promise<number> {
-		const content = readFileSync(this.filePath, "utf-8");
+		const content = readFileNormalized(this.filePath);
 		const matches = content.match(/^- \[ \] /gm);
 		return matches?.length || 0;
 	}
 
 	async countCompleted(): Promise<number> {
-		const content = readFileSync(this.filePath, "utf-8");
+		const content = readFileNormalized(this.filePath);
 		const matches = content.match(/^- \[x\] /gim);
 		return matches?.length || 0;
 	}
