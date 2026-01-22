@@ -6,7 +6,7 @@ import type { Task, TaskSource } from "./types.ts";
  * Read file content and normalize line endings to Unix format
  */
 function readFileNormalized(filePath: string): string {
-	return readFileNormalized(filePath).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+	return readFileSync(filePath, "utf-8").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 /**
