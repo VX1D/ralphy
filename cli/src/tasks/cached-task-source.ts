@@ -28,6 +28,8 @@ export class CachedTaskSource implements TaskSource {
 	private flushTimer: ReturnType<typeof setTimeout> | null = null;
 	private flushIntervalMs: number;
 	private flushRetryCount = 0;
+	private isFlushing = false;
+	private flushQueued = false;
 	private static readonly MAX_FLUSH_RETRIES = 3;
 
 	constructor(inner: TaskSource, options?: CachedTaskSourceOptions) {
@@ -109,23 +111,37 @@ export class CachedTaskSource implements TaskSource {
 	 * IMPORTANT: Always call this before process exit to ensure data is persisted.
 	 */
 	async flush(): Promise<void> {
-		if (this.flushTimer) {
-			clearTimeout(this.flushTimer);
-			this.flushTimer = null;
-		}
-
-		if (this.pendingCompletions.size === 0) {
+		if (this.isFlushing) {
+			this.flushQueued = true;
 			return;
 		}
 
-		// Write pending completions, removing each after success to avoid duplicates on retry
-		for (const id of this.pendingCompletions) {
-			await this.inner.markComplete(id);
-			this.pendingCompletions.delete(id);
-		}
+		this.isFlushing = true;
+		try {
+			if (this.flushTimer) {
+				clearTimeout(this.flushTimer);
+				this.flushTimer = null;
+			}
 
-		// Invalidate cache so next read picks up any external changes
-		this.cachedTasks = null;
+			if (this.pendingCompletions.size === 0) {
+				return;
+			}
+
+			// Write pending completions, removing each after success to avoid duplicates on retry
+			for (const id of this.pendingCompletions) {
+				await this.inner.markComplete(id);
+				this.pendingCompletions.delete(id);
+			}
+
+			// Invalidate cache so next read picks up any external changes
+			this.cachedTasks = null;
+		} finally {
+			this.isFlushing = false;
+			if (this.flushQueued) {
+				this.flushQueued = false;
+				this.scheduleFlush();
+			}
+		}
 	}
 
 	/**
