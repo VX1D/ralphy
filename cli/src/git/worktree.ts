@@ -16,6 +16,8 @@ function generateUniqueId(): string {
 
 /**
  * Create a worktree for parallel agent execution
+ *
+ * Performance optimized: only prunes once, and only if cleanup is needed.
  */
 export async function createAgentWorktree(
 	taskName: string,
@@ -30,13 +32,11 @@ export async function createAgentWorktree(
 
 	const git: SimpleGit = simpleGit(originalDir);
 
-	// Prune stale worktrees first
-	await git.raw(["worktree", "prune"]);
-
 	// Remove existing worktree dir if any (from previous failed runs)
+	// Only prune if we actually remove something
 	if (existsSync(worktreeDir)) {
 		rmSync(worktreeDir, { recursive: true, force: true });
-		// Prune again after removing directory
+		// Prune stale worktrees after removing directory
 		await git.raw(["worktree", "prune"]);
 	}
 

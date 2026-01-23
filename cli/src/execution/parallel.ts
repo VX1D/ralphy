@@ -15,7 +15,7 @@ import { cleanupAgentWorktree, createAgentWorktree, getWorktreeBase } from "../g
 import { CachedTaskSource } from "../tasks/cached-task-source.ts";
 import type { Task } from "../tasks/types.ts";
 import { YamlTaskSource } from "../tasks/yaml.ts";
-import { logDebug, logError, logInfo, logSuccess, logWarn } from "../ui/logger.ts";
+import { formatDuration, logDebug, logError, logInfo, logSuccess, logWarn } from "../ui/logger.ts";
 import { notifyTaskComplete, notifyTaskFailed } from "../ui/notify.ts";
 import { resolveConflictsWithAI } from "./conflict-resolution.ts";
 import { buildParallelPrompt } from "./prompt.ts";
@@ -348,6 +348,7 @@ export async function runParallel(
 		const batch = tasks.slice(0, maxParallel);
 		iteration++;
 
+		const batchStartTime = Date.now();
 		logInfo(`Batch ${iteration}: ${batch.length} tasks in parallel`);
 
 		if (dryRun) {
@@ -357,6 +358,11 @@ export async function runParallel(
 				dryRunProcessedIds.add(task.id);
 			}
 			continue;
+		}
+
+		// Log task names being processed
+		for (const task of batch) {
+			logInfo(`  -> ${task.title}`);
 		}
 
 		// Run agents in parallel (using sandbox or worktree mode)
@@ -521,6 +527,10 @@ export async function runParallel(
 				}
 			}
 		}
+
+		// Log batch completion time
+		const batchDuration = formatDuration(Date.now() - batchStartTime);
+		logInfo(`Batch ${iteration} completed in ${batchDuration}`);
 	}
 
 	// Merge phase: merge completed branches back to base branch
@@ -566,6 +576,7 @@ async function mergeCompletedBranches(
 		return;
 	}
 
+	const mergeStartTime = Date.now();
 	logInfo(`\nMerge phase: merging ${branches.length} branch(es) into ${targetBranch}`);
 
 	// Stage 1: Parallel pre-merge analysis
@@ -643,8 +654,9 @@ async function mergeCompletedBranches(
 	}
 
 	// Summary
+	const mergeDuration = formatDuration(Date.now() - mergeStartTime);
 	if (merged.length > 0) {
-		logSuccess(`Successfully merged ${merged.length} branch(es)`);
+		logSuccess(`Successfully merged ${merged.length} branch(es) in ${mergeDuration}`);
 	}
 	if (failed.length > 0) {
 		logWarn(`Failed to merge ${failed.length} branch(es): ${failed.join(", ")}`);

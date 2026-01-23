@@ -9,21 +9,41 @@ function readFileNormalized(filePath: string): string {
 }
 
 /**
+ * Cached file content with task counts for performance
+ */
+interface CachedContent {
+	content: string;
+	lines: string[];
+	incompleteTasks: Task[];
+	remainingCount: number;
+	completedCount: number;
+	lastModified: number;
+}
+
+/**
  * Markdown task source - reads tasks from markdown files with checkbox format
  * Format: "- [ ] Task description" (incomplete) or "- [x] Task description" (complete)
+ *
+ * Performance optimized: caches file content and task counts to avoid redundant reads.
  */
 export class MarkdownTaskSource implements TaskSource {
 	type = "markdown" as const;
 	private filePath: string;
+	private cache: CachedContent | null = null;
 
 	constructor(filePath: string) {
 		this.filePath = filePath;
 	}
 
-	async getAllTasks(): Promise<Task[]> {
+	/**
+	 * Load and cache file content with parsed task data
+	 */
+	private loadCache(): CachedContent {
 		const content = readFileNormalized(this.filePath);
-		const tasks: Task[] = [];
 		const lines = content.split("\n");
+		const incompleteTasks: Task[] = [];
+		let remainingCount = 0;
+		let completedCount = 0;
 
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i];
@@ -31,23 +51,61 @@ export class MarkdownTaskSource implements TaskSource {
 			// Match incomplete tasks
 			const incompleteMatch = line.match(/^- \[ \] (.+)$/);
 			if (incompleteMatch) {
-				tasks.push({
+				incompleteTasks.push({
 					id: String(i + 1), // Line number as ID
 					title: incompleteMatch[1].trim(),
 					completed: false,
 				});
+				remainingCount++;
+			}
+
+			// Match completed tasks
+			if (/^- \[x\] /i.test(line)) {
+				completedCount++;
 			}
 		}
 
-		return tasks;
+		this.cache = {
+			content,
+			lines,
+			incompleteTasks,
+			remainingCount,
+			completedCount,
+			lastModified: Date.now(),
+		};
+
+		return this.cache;
+	}
+
+	/**
+	 * Get cached content or load fresh
+	 */
+	private getCache(): CachedContent {
+		if (!this.cache) {
+			return this.loadCache();
+		}
+		return this.cache;
+	}
+
+	/**
+	 * Invalidate cache (call after file modifications)
+	 */
+	private invalidateCache(): void {
+		this.cache = null;
+	}
+
+	async getAllTasks(): Promise<Task[]> {
+		return [...this.getCache().incompleteTasks];
 	}
 
 	async getNextTask(): Promise<Task | null> {
-		const tasks = await this.getAllTasks();
-		return tasks[0] || null;
+		const cache = this.getCache();
+		return cache.incompleteTasks[0] || null;
 	}
 
 	async markComplete(id: string): Promise<void> {
+		// Force fresh read for modification to avoid stale data
+		this.invalidateCache();
 		const content = readFileNormalized(this.filePath);
 		const lines = content.split("\n");
 		const lineNumber = Number.parseInt(id, 10) - 1;
@@ -56,18 +114,16 @@ export class MarkdownTaskSource implements TaskSource {
 			// Replace "- [ ]" with "- [x]"
 			lines[lineNumber] = lines[lineNumber].replace(/^- \[ \] /, "- [x] ");
 			writeFileSync(this.filePath, lines.join("\n"), "utf-8");
+			// Invalidate cache after modification
+			this.invalidateCache();
 		}
 	}
 
 	async countRemaining(): Promise<number> {
-		const content = readFileNormalized(this.filePath);
-		const matches = content.match(/^- \[ \] /gm);
-		return matches?.length || 0;
+		return this.getCache().remainingCount;
 	}
 
 	async countCompleted(): Promise<number> {
-		const content = readFileNormalized(this.filePath);
-		const matches = content.match(/^- \[x\] /gim);
-		return matches?.length || 0;
+		return this.getCache().completedCount;
 	}
 }
