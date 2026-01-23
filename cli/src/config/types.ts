@@ -11,6 +11,15 @@ export const ProjectSchema = z.object({
 });
 
 /**
+ * Notifications schema for webhook configuration
+ */
+export const NotificationsSchema = z.object({
+	discord_webhook: z.string().default(""),
+	slack_webhook: z.string().default(""),
+	custom_webhook: z.string().default(""),
+});
+
+/**
  * Commands schema
  */
 export const CommandsSchema = z.object({
@@ -34,6 +43,7 @@ export const RalphyConfigSchema = z.object({
 	commands: CommandsSchema.default({}),
 	rules: z.array(z.string()).default([]),
 	boundaries: BoundariesSchema.default({}),
+	notifications: NotificationsSchema.default({}),
 });
 
 /**

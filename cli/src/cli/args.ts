@@ -8,7 +8,7 @@ const VERSION = "4.3.0";
  * Create the CLI program with all options
  */
 export function createProgram(): Command {
-  const program = new Command();
+	const program = new Command();
 
   program
     .name("ralphy")
@@ -58,18 +58,18 @@ export function createProgram(): Command {
     .option("-v, --verbose", "Verbose output")
     .allowUnknownOption();
 
-  return program;
+	return program;
 }
 
 /**
  * Parse command line arguments into RuntimeOptions
  */
 export function parseArgs(args: string[]): {
-  options: RuntimeOptions;
-  task: string | undefined;
-  initMode: boolean;
-  showConfig: boolean;
-  addRule: string | undefined;
+	options: RuntimeOptions;
+	task: string | undefined;
+	initMode: boolean;
+	showConfig: boolean;
+	addRule: string | undefined;
 } {
   // Find the -- separator and extract engine-specific arguments
   const separatorIndex = args.indexOf("--");
@@ -84,50 +84,50 @@ export function parseArgs(args: string[]): {
   const program = createProgram();
   program.parse(ralphyArgs);
 
-  const opts = program.opts();
-  const [task] = program.args;
+	const opts = program.opts();
+	const [task] = program.args;
 
-  // Determine AI engine (--sonnet implies --claude)
-  let aiEngine = "claude";
-  if (opts.sonnet) aiEngine = "claude";
-  else if (opts.opencode) aiEngine = "opencode";
-  else if (opts.cursor) aiEngine = "cursor";
-  else if (opts.codex) aiEngine = "codex";
-  else if (opts.qwen) aiEngine = "qwen";
-  else if (opts.droid) aiEngine = "droid";
-  else if (opts.copilot) aiEngine = "copilot";
+	// Determine AI engine (--sonnet implies --claude)
+	let aiEngine = "claude";
+	if (opts.sonnet) aiEngine = "claude";
+	else if (opts.opencode) aiEngine = "opencode";
+	else if (opts.cursor) aiEngine = "cursor";
+	else if (opts.codex) aiEngine = "codex";
+	else if (opts.qwen) aiEngine = "qwen";
+	else if (opts.droid) aiEngine = "droid";
+	else if (opts.copilot) aiEngine = "copilot";
 
-  // Determine model override (--sonnet is shortcut for --model sonnet)
-  const modelOverride = opts.sonnet ? "sonnet" : opts.model || undefined;
+	// Determine model override (--sonnet is shortcut for --model sonnet)
+	const modelOverride = opts.sonnet ? "sonnet" : opts.model || undefined;
 
-  // Determine PRD source with auto-detection for file vs folder
-  let prdSource: "markdown" | "markdown-folder" | "yaml" | "json" | "github" =
-    "markdown";
-  let prdFile = opts.prd || "PRD.md";
-  let prdIsFolder = false;
+	// Determine PRD source with auto-detection for file vs folder
+	let prdSource: "markdown" | "markdown-folder" | "yaml" | "json" | "github" =
+		"markdown";
+	let prdFile = opts.prd || "PRD.md";
+	let prdIsFolder = false;
 
-  if (opts.json) {
-    prdSource = "json";
-    prdFile = opts.json;
-  } else if (opts.yaml) {
-    prdSource = "yaml";
-    prdFile = opts.yaml;
-  } else if (opts.github) {
-    prdSource = "github";
-  } else {
-    // Auto-detect if PRD path is a file or folder
-    if (existsSync(prdFile)) {
-      const stat = statSync(prdFile);
-      if (stat.isDirectory()) {
-        prdSource = "markdown-folder";
-        prdIsFolder = true;
-      } else if (prdFile.toLowerCase().endsWith(".json")) {
-        prdSource = "json";
-      }
-    } else if (prdFile.toLowerCase().endsWith(".json")) {
-      prdSource = "json";
-    }
-  }
+	if (opts.json) {
+		prdSource = "json";
+		prdFile = opts.json;
+	} else if (opts.yaml) {
+		prdSource = "yaml";
+		prdFile = opts.yaml;
+	} else if (opts.github) {
+		prdSource = "github";
+	} else {
+		// Auto-detect if PRD path is a file or folder
+		if (existsSync(prdFile)) {
+			const stat = statSync(prdFile);
+			if (stat.isDirectory()) {
+				prdSource = "markdown-folder";
+				prdIsFolder = true;
+			} else if (prdFile.toLowerCase().endsWith(".json")) {
+				prdSource = "json";
+			}
+		} else if (prdFile.toLowerCase().endsWith(".json")) {
+			prdSource = "json";
+		}
+	}
 
   // Handle --fast
   const skipTests = opts.fast || opts.skipTests;
@@ -166,26 +166,26 @@ export function parseArgs(args: string[]): {
     engineArgs,
   };
 
-  return {
-    options,
-    task,
-    initMode: opts.init || false,
-    showConfig: opts.config || false,
-    addRule: opts.addRule,
-  };
+	return {
+		options,
+		task,
+		initMode: opts.init || false,
+		showConfig: opts.config || false,
+		addRule: opts.addRule,
+	};
 }
 
 /**
  * Print version
  */
 export function printVersion(): void {
-  console.log(`ralphy v${VERSION}`);
+	console.log(`ralphy v${VERSION}`);
 }
 
 /**
  * Print help
  */
 export function printHelp(): void {
-  const program = createProgram();
-  program.outputHelp();
+	const program = createProgram();
+	program.outputHelp();
 }

@@ -1,3 +1,4 @@
+import { loadConfig } from "../../config/loader.ts";
 import type { RuntimeOptions } from "../../config/types.ts";
 import { logTaskProgress } from "../../config/writer.ts";
 import { createEngine, isEngineAvailable } from "../../engines/index.ts";
@@ -5,6 +6,7 @@ import type { AIEngineName } from "../../engines/types.ts";
 import { isBrowserAvailable } from "../../execution/browser.ts";
 import { buildPrompt } from "../../execution/prompt.ts";
 import { isRetryableError, withRetry } from "../../execution/retry.ts";
+import { sendNotifications } from "../../notifications/webhook.ts";
 import { formatTokens, logError, logInfo, setVerbose } from "../../ui/logger.ts";
 import { notifyTaskComplete, notifyTaskFailed } from "../../ui/notify.ts";
 import { buildActiveSettings } from "../../ui/settings.ts";
@@ -15,6 +17,7 @@ import { ProgressSpinner } from "../../ui/spinner.ts";
  */
 export async function runTask(task: string, options: RuntimeOptions): Promise<void> {
 	const workDir = process.cwd();
+	const config = loadConfig(workDir);
 
 	// Set verbose mode
 	setVerbose(options.verbose);
@@ -104,6 +107,10 @@ export async function runTask(task: string, options: RuntimeOptions): Promise<vo
 			spinner.success(`Done ${tokens}`);
 
 			logTaskProgress(task, "completed", workDir);
+			await sendNotifications(config, "completed", {
+				tasksCompleted: 1,
+				tasksFailed: 0,
+			});
 			notifyTaskComplete(task);
 
 			// Show response summary
@@ -117,6 +124,10 @@ export async function runTask(task: string, options: RuntimeOptions): Promise<vo
 		} else {
 			spinner.error(result.error || "Unknown error");
 			logTaskProgress(task, "failed", workDir);
+			await sendNotifications(config, "failed", {
+				tasksCompleted: 0,
+				tasksFailed: 1,
+			});
 			notifyTaskFailed(task, result.error || "Unknown error");
 			process.exit(1);
 		}
@@ -124,6 +135,10 @@ export async function runTask(task: string, options: RuntimeOptions): Promise<vo
 		const errorMsg = error instanceof Error ? error.message : String(error);
 		spinner.error(errorMsg);
 		logTaskProgress(task, "failed", workDir);
+		await sendNotifications(config, "failed", {
+			tasksCompleted: 0,
+			tasksFailed: 1,
+		});
 		notifyTaskFailed(task, errorMsg);
 		process.exit(1);
 	}
