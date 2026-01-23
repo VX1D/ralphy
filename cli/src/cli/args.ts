@@ -124,8 +124,6 @@ export function parseArgs(args: string[]): {
 			} else if (prdFile.toLowerCase().endsWith(".json")) {
 				prdSource = "json";
 			}
-		} else if (prdFile.toLowerCase().endsWith(".json")) {
-			prdSource = "json";
 		}
 	}
 
