@@ -200,18 +200,14 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 						const deferrals = recordDeferredTask(taskSource.type, task, workDir, options.prdFile);
 						spinner.error(errMsg);
 						if (deferrals >= maxRetries) {
-							logError(
-								`Task "${task.title}" failed after ${deferrals} deferrals: ${errMsg}`,
-							);
+							logError(`Task "${task.title}" failed after ${deferrals} deferrals: ${errMsg}`);
 							logTaskProgress(task.title, "failed", workDir);
 							result.tasksFailed++;
 							notifyTaskFailed(task.title, errMsg);
 							await taskSource.markComplete(task.id);
 							clearDeferredTask(taskSource.type, task, workDir, options.prdFile);
 						} else {
-							logWarn(
-								`Temporary failure, stopping early (${deferrals}/${maxRetries}): ${errMsg}`,
-							);
+							logWarn(`Temporary failure, stopping early (${deferrals}/${maxRetries}): ${errMsg}`);
 							result.tasksFailed++;
 							abortDueToRetryableFailure = true;
 						}
@@ -229,18 +225,14 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 					const deferrals = recordDeferredTask(taskSource.type, task, workDir, options.prdFile);
 					spinner.error(errorMsg);
 					if (deferrals >= maxRetries) {
-						logError(
-							`Task "${task.title}" failed after ${deferrals} deferrals: ${errorMsg}`,
-						);
+						logError(`Task "${task.title}" failed after ${deferrals} deferrals: ${errorMsg}`);
 						logTaskProgress(task.title, "failed", workDir);
 						result.tasksFailed++;
 						notifyTaskFailed(task.title, errorMsg);
 						await taskSource.markComplete(task.id);
 						clearDeferredTask(taskSource.type, task, workDir, options.prdFile);
 					} else {
-						logWarn(
-							`Temporary failure, stopping early (${deferrals}/${maxRetries}): ${errorMsg}`,
-						);
+						logWarn(`Temporary failure, stopping early (${deferrals}/${maxRetries}): ${errorMsg}`);
 						result.tasksFailed++;
 						abortDueToRetryableFailure = true;
 					}

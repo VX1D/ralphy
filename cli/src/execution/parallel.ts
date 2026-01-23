@@ -431,9 +431,7 @@ export async function runParallel(
 				engineArgs,
 			).then((res) => {
 				if (shouldFallbackToSandbox(res.error)) {
-					logWarn(
-						`Agent ${globalAgentNum}: Worktree unavailable, retrying in sandbox mode.`,
-					);
+					logWarn(`Agent ${globalAgentNum}: Worktree unavailable, retrying in sandbox mode.`);
 					if (res.worktreeDir) {
 						cleanupAgentWorktree(res.worktreeDir, res.branchName, workDir).catch(() => {
 							// Ignore cleanup failures during fallback
@@ -499,9 +497,7 @@ export async function runParallel(
 				if (retryableFailure) {
 					const deferrals = recordDeferredTask(taskSource.type, task, workDir, prdFile);
 					if (deferrals >= maxRetries) {
-						logError(
-							`Task "${task.title}" failed after ${deferrals} deferrals: ${failureReason}`,
-						);
+						logError(`Task "${task.title}" failed after ${deferrals} deferrals: ${failureReason}`);
 						logTaskProgress(task.title, "failed", workDir);
 						result.tasksFailed++;
 						notifyTaskFailed(task.title, failureReason);
@@ -509,9 +505,7 @@ export async function runParallel(
 						clearDeferredTask(taskSource.type, task, workDir, prdFile);
 						retryableFailure = false;
 					} else {
-						logWarn(
-							`Task "${task.title}" deferred (${deferrals}/${maxRetries}): ${failureReason}`,
-						);
+						logWarn(`Task "${task.title}" deferred (${deferrals}/${maxRetries}): ${failureReason}`);
 						result.tasksFailed++;
 					}
 				} else {
