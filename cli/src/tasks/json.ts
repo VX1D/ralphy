@@ -82,7 +82,11 @@ export class JsonTaskSource implements TaskSource {
 
 	async countRemaining(): Promise<number> {
 		const data = this.readFile();
-		return (data.tasks || []).filter((task) => !task.completed).length;
+		if (!data.tasks || !Array.isArray(data.tasks)) {
+			throw new Error("Invalid JSON task file: 'tasks' array is required");
+		}
+		return data.tasks.filter((task) => !task.completed).length;
+	}
 	}
 
 	async countCompleted(): Promise<number> {
