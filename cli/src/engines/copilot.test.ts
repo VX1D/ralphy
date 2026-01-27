@@ -231,6 +231,23 @@ function test() {
 
 			spy.mockRestore();
 		});
+
+		it("should handle race condition when temp directory already exists", async () => {
+			// Ensure temp directory exists to simulate race condition
+			mkdirSync(tempDir, { recursive: true });
+
+			const spy = spyOn(baseModule, "execCommand").mockResolvedValue({
+				stdout: "model-name 10 in, 5 out, 0 cached\nTask completed",
+				stderr: "",
+				exitCode: 0,
+			});
+
+			// This should not throw even if directory creation races
+			const result = await engine.execute("test prompt", testWorkDir);
+			expect(result.success).toBe(true);
+
+			spy.mockRestore();
+		});
 	});
 
 	describe("Command Building", () => {

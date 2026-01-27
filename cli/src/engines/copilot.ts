@@ -36,8 +36,16 @@ export class CopilotEngine extends BaseAIEngine {
 	 * @returns The path to the temporary prompt file
 	 */
 	private createPromptFile(prompt: string): string {
-		// Ensure temp directory exists
-		mkdirSync(TEMP_DIR, { recursive: true });
+		// Ensure temp directory exists - wrapped in try-catch to handle
+		// potential race conditions when multiple processes create it simultaneously
+		try {
+			mkdirSync(TEMP_DIR, { recursive: true });
+		} catch (err) {
+			// EEXIST is expected if another process created the directory first
+			if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+				throw err;
+			}
+		}
 
 		// Generate unique filename using UUID for parallel safety
 		const filename = `prompt-${randomUUID()}.md`;
