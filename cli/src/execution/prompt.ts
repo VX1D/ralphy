@@ -133,6 +133,7 @@ interface ParallelPromptOptions {
 	task: string;
 	progressFile: string;
 	prdFile?: string;
+	workDir?: string;
 	skipTests?: boolean;
 	skipLint?: boolean;
 	browserEnabled?: "auto" | "true" | "false";
@@ -147,15 +148,15 @@ export function buildParallelPrompt(options: ParallelPromptOptions): string {
 		task,
 		progressFile,
 		prdFile,
+		workDir = process.cwd(),
 		skipTests = false,
 		skipLint = false,
 		browserEnabled = "auto",
 		allowCommit = true,
 	} = options;
 
-	// Parallel execution typically runs in a worktree; we still try to detect skills from CWD.
-	// If callers pass a workDir in the future, prefer that instead.
-	const skillRoots = detectAgentSkills(process.cwd());
+	// Parallel execution typically runs in a worktree
+	const skillRoots = detectAgentSkills(workDir);
 	const skillsSection =
 		skillRoots.length > 0
 			? `\n\nAgent Skills:\nThis repo includes skill/playbook docs:\n${skillRoots
@@ -170,7 +171,7 @@ export function buildParallelPrompt(options: ParallelPromptOptions): string {
 		: "";
 
 	// Load rules from config
-	const rules = loadRules(process.cwd());
+	const rules = loadRules(workDir);
 	const codeChangeRules = [
 		"Keep changes focused and minimal. Do not refactor unrelated code.",
 		...rules,
@@ -182,7 +183,7 @@ export function buildParallelPrompt(options: ParallelPromptOptions): string {
 
 	// Build boundaries section - combine system boundaries with user-defined boundaries
 	// System boundaries come first to ensure they are prominently visible
-	const userBoundaries = loadBoundaries(process.cwd());
+	const userBoundaries = loadBoundaries(workDir);
 	const systemBoundaries = [
 		prdFile || "the PRD file",
 		".ralphy/progress.txt",

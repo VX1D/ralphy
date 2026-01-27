@@ -266,6 +266,17 @@ describe("buildParallelPrompt", () => {
 	});
 
 	describe("Boundaries Section", () => {
+		const testWorkDir = join(tmpdir(), "parallel-prompt-test");
+		const ralphyDir = join(testWorkDir, ".ralphy");
+
+		beforeEach(() => {
+			mkdirSync(ralphyDir, { recursive: true });
+		});
+
+		afterEach(() => {
+			rmSync(testWorkDir, { recursive: true, force: true });
+		});
+
 		it("should include boundaries section with system files", () => {
 			const result = buildParallelPrompt({
 				task: "Implement feature",
@@ -297,6 +308,36 @@ describe("buildParallelPrompt", () => {
 			});
 
 			expect(result).toContain("Do NOT mark tasks complete");
+		});
+
+		it("should include user-defined boundaries after system boundaries", () => {
+			// Create config with user boundaries (using spaces, not tabs - YAML requirement)
+			const yamlContent = [
+				"project:",
+				"  name: test",
+				"boundaries:",
+				"  never_touch:",
+				"    - src/legacy/**",
+				"    - vendor/",
+			].join("\n");
+			writeFileSync(join(ralphyDir, "config.yaml"), yamlContent);
+
+			const result = buildParallelPrompt({
+				task: "Implement feature",
+				progressFile: ".ralphy/progress.txt",
+				workDir: testWorkDir,
+			});
+
+			expect(result).toContain("- src/legacy/**");
+			expect(result).toContain("- vendor/");
+
+			// System boundaries should appear before user boundaries
+			const boundariesIndex = result.indexOf("Boundaries - Do NOT modify:");
+			const prdIndex = result.indexOf("- the PRD file");
+			const legacyIndex = result.indexOf("- src/legacy/**");
+
+			expect(prdIndex).toBeGreaterThan(boundariesIndex);
+			expect(legacyIndex).toBeGreaterThan(prdIndex);
 		});
 	});
 
