@@ -353,7 +353,7 @@ ralphy --parallel --sandbox
 | Cursor | `agent` | `--force` | duration |
 | Qwen | `qwen` | `--approval-mode yolo` | tokens |
 | Droid | `droid exec` | `--auto medium` | duration |
-| Copilot | `copilot` | `-p` flag | duration |
+| Copilot | `copilot` | `--yolo` | tokens |
 | Gemini | `gemini` | `--yolo` | tokens + cost |
 
 When an engine exits non-zero, ralphy includes the last lines of CLI output in the error message to make debugging easier.
@@ -361,6 +361,11 @@ When an engine exits non-zero, ralphy includes the last lines of CLI output in t
 ---
 
 ## Changelog
+
+### v4.7.1
+- **Copilot engine improvements**: non-interactive mode (`--yolo`), proper error detection for auth/rate-limit/network errors, token usage parsing, temp file-based prompts for markdown preservation
+- **Fixed infinite retry loop**: tasks now properly abort on fatal configuration/authentication errors
+- **Project standards**: added `.editorconfig` and `.gitattributes` for consistent coding styles
 
 ### v4.7.0
 - **JSON PRD support**: new `--json` flag to use JSON files as task sources with support for parallel groups and task descriptions
