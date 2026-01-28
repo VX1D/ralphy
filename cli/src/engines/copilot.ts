@@ -84,6 +84,8 @@ export class CopilotEngine extends BaseAIEngine {
 		// Pass prompt file path (Copilot CLI accepts file paths for -p)
 		// NOTE: This is an undocumented feature of Copilot CLI but works reliably
 		// since copilot is smart enough to detect file paths and read the content.
+		// Do NOT quote the path - arguments are passed directly without shell interpretation
+		// on non-Windows platforms, so quotes would become literal characters in the path.
 		args.push("-p", promptFilePath);
 
 		if (options?.modelOverride) {

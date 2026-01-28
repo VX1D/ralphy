@@ -291,7 +291,9 @@ function test() {
 			const pIndex = capturedArgs.indexOf("-p");
 			expect(pIndex).not.toBe(-1);
 			expect(pIndex + 1).toBeLessThan(capturedArgs.length);
+			// Path should NOT be quoted - quotes become literal characters on non-Windows
 			expect(capturedArgs[pIndex + 1]).toMatch(/prompt-[0-9a-f-]+\.md$/);
+			expect(capturedArgs[pIndex + 1]).not.toMatch(/^"/);
 
 			spy.mockRestore();
 		});
@@ -337,6 +339,33 @@ function test() {
 
 			expect(capturedArgs).toContain("--verbose");
 			expect(capturedArgs).toContain("--debug");
+
+			spy.mockRestore();
+		});
+
+		it("should pass file paths without quotes for cross-platform compatibility", async () => {
+			let capturedArgs: string[] = [];
+
+			const spy = spyOn(baseModule, "execCommand").mockImplementation(
+				async (_cmd: string, args: string[]) => {
+					capturedArgs = args;
+					return {
+						stdout: "model-name 10 in, 5 out, 0 cached\nCompleted",
+						stderr: "",
+						exitCode: 0,
+					};
+				},
+			);
+
+			await engine.execute("test prompt", testWorkDir);
+
+			const pIndex = capturedArgs.indexOf("-p");
+			const pathArg = capturedArgs[pIndex + 1];
+			// The path should NOT be quoted - quotes become literal on non-shell execution
+			expect(pathArg).not.toMatch(/^"/);
+			expect(pathArg).not.toMatch(/"$/);
+			// The path should be a valid file path
+			expect(pathArg).toMatch(/prompt-[0-9a-f-]+\.md$/);
 
 			spy.mockRestore();
 		});

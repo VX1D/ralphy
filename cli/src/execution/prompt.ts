@@ -53,15 +53,29 @@ export function buildPrompt(options: PromptOptions): string {
 
 	// Add rules if available
 	const rules = loadRules(workDir);
-	if (rules.length > 0) {
-		parts.push(`## Rules (you MUST follow these)\n${rules.join("\n")}`);
+	const codeChangeRules = [
+		"Keep changes focused and minimal. Do not refactor unrelated code.",
+		...rules,
+	];
+	if (codeChangeRules.length > 0) {
+		parts.push(
+			`## Rules (you MUST follow these)\n${codeChangeRules.map((r) => `- ${r}`).join("\n")}`,
+		);
 	}
 
-	// Add boundaries
-	const boundaries = loadBoundaries(workDir);
-	if (boundaries.length > 0) {
-		parts.push(`## Boundaries\nDo NOT modify these files/directories:\n${boundaries.join("\n")}`);
-	}
+	// Add boundaries - combine system boundaries with user-defined boundaries
+	// System boundaries come first to ensure they are prominently visible
+	const userBoundaries = loadBoundaries(workDir);
+	const systemBoundaries = [
+		prdFile || "the PRD file",
+		".ralphy/progress.txt",
+		".ralphy-worktrees",
+		".ralphy-sandboxes",
+	];
+	const allBoundaries = [...systemBoundaries, ...userBoundaries];
+	parts.push(
+		`## Boundaries\nDo NOT modify these files/directories:\n${allBoundaries.map((b) => `- ${b}`).join("\n")}`,
+	);
 
 	// Agent skills/playbooks (optional)
 	const skillRoots = detectAgentSkills(workDir);
@@ -113,16 +127,6 @@ export function buildPrompt(options: PromptOptions): string {
 
 	parts.push(`## Instructions\n${instructions.join("\n")}`);
 
-	// Add final note
-	const prdNote = prdFile ? `Do NOT modify ${prdFile}.` : "Do NOT modify the PRD file.";
-	parts.push(
-		[
-			prdNote,
-			"Do NOT modify .ralphy/progress.txt, .ralphy-worktrees, or .ralphy-sandboxes.",
-			"Keep changes focused and minimal. Do not refactor unrelated code.",
-		].join(" "),
-	);
-
 	return parts.join("\n\n");
 }
 
@@ -130,6 +134,7 @@ interface ParallelPromptOptions {
 	task: string;
 	progressFile: string;
 	prdFile?: string;
+	workDir?: string;
 	skipTests?: boolean;
 	skipLint?: boolean;
 	browserEnabled?: "auto" | "true" | "false";
@@ -144,15 +149,15 @@ export function buildParallelPrompt(options: ParallelPromptOptions): string {
 		task,
 		progressFile,
 		prdFile,
+		workDir = process.cwd(),
 		skipTests = false,
 		skipLint = false,
 		browserEnabled = "auto",
 		allowCommit = true,
 	} = options;
 
-	// Parallel execution typically runs in a worktree; we still try to detect skills from CWD.
-	// If callers pass a workDir in the future, prefer that instead.
-	const skillRoots = detectAgentSkills(process.cwd());
+	// Parallel execution typically runs in a worktree
+	const skillRoots = detectAgentSkills(workDir);
 	const skillsSection =
 		skillRoots.length > 0
 			? `\n\nAgent Skills:\nThis repo includes skill/playbook docs:\n${skillRoots
@@ -165,6 +170,29 @@ export function buildParallelPrompt(options: ParallelPromptOptions): string {
 	const browserSection = isBrowserAvailable(browserEnabled)
 		? `\n\n${getBrowserInstructions()}`
 		: "";
+
+	// Load rules from config
+	const rules = loadRules(workDir);
+	const codeChangeRules = [
+		"Keep changes focused and minimal. Do not refactor unrelated code.",
+		...rules,
+	];
+	const rulesSection =
+		codeChangeRules.length > 0
+			? `\n\nRules (you MUST follow these):\n${codeChangeRules.map((r) => `- ${r}`).join("\n")}`
+			: "";
+
+	// Build boundaries section - combine system boundaries with user-defined boundaries
+	// System boundaries come first to ensure they are prominently visible
+	const userBoundaries = loadBoundaries(workDir);
+	const systemBoundaries = [
+		prdFile || "the PRD file",
+		".ralphy/progress.txt",
+		".ralphy-worktrees",
+		".ralphy-sandboxes",
+	];
+	const allBoundaries = [...systemBoundaries, ...userBoundaries];
+	const boundariesSection = `\n\nBoundaries - Do NOT modify:\n${allBoundaries.map((b) => `- ${b}`).join("\n")}\n\nDo NOT mark tasks complete - that will be handled separately.`;
 
 	const instructions = ["1. Implement this specific task completely"];
 
@@ -191,13 +219,10 @@ export function buildParallelPrompt(options: ParallelPromptOptions): string {
 
 	return `You are working on a specific task. Focus ONLY on this task:
 
-TASK: ${task}${browserSection}${skillsSection}
+TASK: ${task}${rulesSection}${boundariesSection}${browserSection}${skillsSection}
 
 Instructions:
 ${instructions.join("\n")}
 
-${prdFile ? `Do NOT modify ${prdFile}.` : "Do NOT modify the PRD file."}
-Do NOT modify .ralphy/progress.txt, .ralphy-worktrees, or .ralphy-sandboxes.
-Do NOT mark tasks complete - that will be handled separately.
 Focus only on implementing: ${task}`;
 }
