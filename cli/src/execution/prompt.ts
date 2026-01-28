@@ -22,6 +22,7 @@ function detectAgentSkills(workDir: string): string[] {
 	const candidates = [
 		join(workDir, ".opencode", "skills"),
 		join(workDir, ".claude", "skills"),
+		join(workDir, ".github", "skills"),
 		join(workDir, ".skills"),
 	];
 

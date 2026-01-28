@@ -35,7 +35,7 @@ rules:
   # - "Use server actions instead of API routes in Next.js"
   #
   # Skills/playbooks (optional):
-  # - "Before coding, read and follow any relevant skill/playbook docs under .opencode/skills or .claude/skills."
+  # - "Before coding, read and follow any relevant skill/playbook docs under .opencode/skills, .claude/skills, or .github/skills."
 
 # Boundaries - files/folders the AI should not modify
 boundaries:
