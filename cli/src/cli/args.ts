@@ -47,6 +47,7 @@ export function createProgram(): Command {
 		.option("--prd <path>", "PRD file or folder (auto-detected)", "PRD.md")
 		.option("--yaml <file>", "YAML task file")
 		.option("--json <file>", "JSON task file")
+		.option("--csv <file>", "CSV task file (compact, token-efficient)")
 		.option("--github <repo>", "GitHub repo for issues (owner/repo)")
 		.option("--github-label <label>", "Filter GitHub issues by label")
 		.option("--sync-issue <number>", "Sync PRD file to GitHub issue body on each iteration")
@@ -56,6 +57,8 @@ export function createProgram(): Command {
 		.option("--model <name>", "Override default model for the engine")
 		.option("--sonnet", "Shortcut for --claude --model sonnet")
 		.option("--no-merge", "Skip automatic branch merging after parallel execution")
+		.option("--convert-from <file>", "Source file to convert to CSV format")
+		.option("--convert-to <file>", "Output CSV file path")
 		.option("-v, --verbose", "Verbose output")
 		.allowUnknownOption();
 
@@ -71,6 +74,8 @@ export function parseArgs(args: string[]): {
 	initMode: boolean;
 	showConfig: boolean;
 	addRule: string | undefined;
+	convertFrom: string | undefined;
+	convertTo: string | undefined;
 } {
 	// Find the -- separator and extract engine-specific arguments
 	const separatorIndex = args.indexOf("--");
@@ -103,11 +108,14 @@ export function parseArgs(args: string[]): {
 	const modelOverride = opts.sonnet ? "sonnet" : opts.model || undefined;
 
 	// Determine PRD source with auto-detection for file vs folder
-	let prdSource: "markdown" | "markdown-folder" | "yaml" | "json" | "github" = "markdown";
+	let prdSource: "markdown" | "markdown-folder" | "yaml" | "json" | "csv" | "github" = "markdown";
 	let prdFile = opts.prd || "PRD.md";
 	let prdIsFolder = false;
 
-	if (opts.json) {
+	if (opts.csv) {
+		prdSource = "csv";
+		prdFile = opts.csv;
+	} else if (opts.json) {
 		prdSource = "json";
 		prdFile = opts.json;
 	} else if (opts.yaml) {
@@ -167,6 +175,8 @@ export function parseArgs(args: string[]): {
 		initMode: opts.init || false,
 		showConfig: opts.config || false,
 		addRule: opts.addRule,
+		convertFrom: opts.convertFrom || undefined,
+		convertTo: opts.convertTo || undefined,
 	};
 }
 

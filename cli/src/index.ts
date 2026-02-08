@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { parseArgs } from "./cli/args.ts";
 import { addRule, showConfig } from "./cli/commands/config.ts";
+import { runConvert } from "./cli/commands/convert.ts";
 import { runInit } from "./cli/commands/init.ts";
 import { runLoop } from "./cli/commands/run.ts";
 import { runTask } from "./cli/commands/task.ts";
@@ -15,7 +16,15 @@ async function main(): Promise<void> {
 			initMode,
 			showConfig: showConfigMode,
 			addRule: rule,
+			convertFrom,
+			convertTo,
 		} = parseArgs(process.argv);
+
+		// Handle --convert-from / --convert-to
+		if (convertFrom && convertTo) {
+			await runConvert({ from: convertFrom, to: convertTo, verbose: options.verbose });
+			return;
+		}
 
 		// Handle --init
 		if (initMode) {

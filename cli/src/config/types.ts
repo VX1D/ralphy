@@ -92,7 +92,7 @@ export interface RuntimeOptions {
 	/** Maximum parallel agents */
 	maxParallel: number;
 	/** PRD source type */
-	prdSource: "markdown" | "markdown-folder" | "yaml" | "json" | "github";
+	prdSource: "markdown" | "markdown-folder" | "yaml" | "json" | "csv" | "github";
 	/** PRD file or folder path */
 	prdFile: string;
 	/** Whether PRD path is a folder */
