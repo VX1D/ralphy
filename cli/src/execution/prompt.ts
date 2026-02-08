@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadBoundaries, loadProjectContext, loadRules } from "../config/loader.ts";
+import type { Task } from "../tasks/types.ts";
 import { getBrowserInstructions, isBrowserAvailable } from "./browser.ts";
 
 interface PromptOptions {
@@ -233,4 +234,81 @@ Instructions:
 ${instructions.join("\n")}
 
 Focus only on implementing: ${task}`;
+}
+
+/**
+ * Build a planning prompt for task analysis
+ *
+ * This prompt guides the AI to analyze a task and produce structured output
+ * including analysis, plan, files to modify, and optimization suggestions.
+ */
+export function buildPlanningPrompt(
+	task: Task,
+	_autoCommit?: boolean,
+	fullTasksContext?: string,
+	relevantFiles?: string[],
+): string {
+	// Build relevant files section if provided
+	const relevantFilesSection =
+		relevantFiles && relevantFiles.length > 0
+			? `\nRELEVANT FILES (prioritize these in your analysis):\n${relevantFiles
+					.slice(0, 30)
+					.map((f) => `- ${f}`)
+					.join("\n")}\n`
+			: "";
+
+	// Extract description from task body or use empty string
+	const description = (task as { description?: string }).description || task.body || "";
+	// Extract dependencies if they exist
+	const dependencies = (task as { dependencies?: string[] }).dependencies || [];
+
+	const prompt = `You are a senior engineering planner. Your job is to create a comprehensive plan for this task.
+
+TASK: ${task.title || task.id}
+${description ? `DESCRIPTION: ${description}` : ""}
+${dependencies.length > 0 ? `DEPENDENCIES: ${dependencies.join(", ")}` : ""}
+${relevantFilesSection}
+
+${fullTasksContext ? `FULL PROJECT TASKS CONTEXT:\n${fullTasksContext}\n\n` : ""}
+
+First, analyze this task thoroughly and provide structured output in this format:
+
+<ANALYSIS>
+ - Problem: [What is the actual problem being solved?]
+ - Goal: [What is the desired end state?]
+ - Complexity: [low/medium/high]
+ - Risks: [Potential challenges or edge cases]
+</ANALYSIS>
+
+<PLAN>
+1. [Step 1: What to do first]
+2. [Step 2: Analysis or research needed]
+3. [Step 3: Implementation approach]
+4. [Step 4: Testing/validation]
+5. [Step 5: Final integration or cleanup]
+</PLAN>
+
+<FILES>
+path/to/file1.ext
+path/to/file2.ext
+...
+</FILES>
+
+<OPTIMIZATION>
+ - Most efficient approach: [How to implement this optimally]
+ - Key considerations: [Technical factors to remember]
+ - Potential shortcuts: [Ways to accomplish this faster/better]
+</OPTIMIZATION>
+
+IMPORTANT INSTRUCTIONS FOR PLANNING PHASE:
+1. You may use read/glob/grep tools to EXPLORE the codebase and understand the task
+2. DO NOT write, edit, create, or modify any files during planning
+3. DO NOT execute any implementation - this is a planning-only phase
+4. After exploring, return the structured plan above in your final response
+5. Your entire response must contain the <ANALYSIS>, <PLAN>, <FILES>, and <OPTIMIZATION> tags
+6. Return ONLY the planning analysis, not partial results from tool exploration
+
+Think step by step, explaining your reasoning clearly. Use tools to explore the codebase before finalizing your plan.`;
+
+	return prompt;
 }
