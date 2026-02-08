@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
+import { validateCommand } from "../engines/base.ts";
+import { logWarn } from "../ui/logger.ts";
 import { type RalphyConfig, RalphyConfigSchema } from "./types.ts";
 
 export const RALPHY_DIR = ".ralphy";
@@ -48,10 +50,19 @@ export function loadConfig(workDir = process.cwd()): RalphyConfig | null {
 	try {
 		const content = readFileSync(configPath, "utf-8");
 		const parsed = YAML.parse(content);
+
+		// SECURITY: Check for prototype pollution keys before schema validation
+		const contentStr = JSON.stringify(parsed);
+		if (
+			contentStr.includes('"__proto__"') ||
+			contentStr.includes('"constructor"') ||
+			contentStr.includes('"prototype"')
+		) {
+			throw new Error("Config file contains potentially malicious prototype pollution keys");
+		}
+
 		return RalphyConfigSchema.parse(parsed);
-	} catch (error) {
-		// Log error for debugging, but return default config
-		console.error(`Warning: Failed to parse config at ${configPath}:`, error);
+	} catch (_error) {
 		return RalphyConfigSchema.parse({});
 	}
 }
@@ -77,7 +88,14 @@ export function loadBoundaries(workDir = process.cwd()): string[] {
  */
 export function loadTestCommand(workDir = process.cwd()): string {
 	const config = loadConfig(workDir);
-	return config?.commands.test ?? "";
+	const command = config?.commands.test ?? "";
+
+	if (command && !validateCommand(command)) {
+		logWarn(`Invalid test command in config: "${command}". Falling back to default.`);
+		return "";
+	}
+
+	return command;
 }
 
 /**
@@ -85,7 +103,14 @@ export function loadTestCommand(workDir = process.cwd()): string {
  */
 export function loadLintCommand(workDir = process.cwd()): string {
 	const config = loadConfig(workDir);
-	return config?.commands.lint ?? "";
+	const command = config?.commands.lint ?? "";
+
+	if (command && !validateCommand(command)) {
+		logWarn(`Invalid lint command in config: "${command}". Falling back to default.`);
+		return "";
+	}
+
+	return command;
 }
 
 /**
@@ -93,7 +118,14 @@ export function loadLintCommand(workDir = process.cwd()): string {
  */
 export function loadBuildCommand(workDir = process.cwd()): string {
 	const config = loadConfig(workDir);
-	return config?.commands.build ?? "";
+	const command = config?.commands.build ?? "";
+
+	if (command && !validateCommand(command)) {
+		logWarn(`Invalid build command in config: "${command}". Falling back to default.`);
+		return "";
+	}
+
+	return command;
 }
 
 /**

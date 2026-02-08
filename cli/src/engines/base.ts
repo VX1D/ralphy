@@ -1,5 +1,10 @@
 import { spawn, spawnSync } from "node:child_process";
+import { registerProcess } from "../utils/cleanup.ts";
 import type { AIEngine, AIResult, EngineOptions, ProgressCallback } from "./types.ts";
+import { validateCommandAndArgs } from "./validation.ts";
+
+// Re-export security utilities for use by other modules (e.g. config/loader.ts)
+export { validateArgs, validateCommand, validateCommandAndArgs } from "./validation.ts";
 
 // Check if running in Bun
 const isBun = typeof Bun !== "undefined";
@@ -28,7 +33,9 @@ export async function commandExists(command: string): Promise<boolean> {
 }
 
 /**
- * Execute a command and return stdout
+ * Execute a command and return stdout.
+ * On Node.js, validates command and args against injection before spawning,
+ * and tracks child processes for cleanup on exit.
  * @param stdinContent - Optional content to pass via stdin (useful for multi-line prompts on Windows)
  */
 export async function execCommand(
@@ -64,14 +71,28 @@ export async function execCommand(
 		return { stdout, stderr, exitCode };
 	}
 
-	// Node.js fallback - use shell on Windows to execute .cmd wrappers
+	// Node.js fallback - validate command before execution
+	const validation = validateCommandAndArgs(command, args);
+	if (!validation.valid) {
+		return {
+			stdout: "",
+			stderr: `Error: ${validation.error}`,
+			exitCode: 1,
+		};
+	}
+
 	return new Promise((resolve) => {
-		const proc = spawn(command, args, {
+		const validCmd = validation.command || command;
+		const validArgs = validation.args || args;
+		const proc = spawn(validCmd, validArgs, {
 			cwd: workDir,
 			env: { ...process.env, ...env },
 			stdio: [stdinContent ? "pipe" : "ignore", "pipe", "pipe"],
-			shell: isWindows, // Required on Windows for npm global commands (.cmd wrappers)
+			shell: false, // Disable shell to prevent command injection
 		});
+
+		// Track process for cleanup on exit
+		const unregister = registerProcess(proc);
 
 		// Write stdin content if provided
 		if (stdinContent && proc.stdin) {
@@ -82,20 +103,21 @@ export async function execCommand(
 		let stdout = "";
 		let stderr = "";
 
-		proc.stdout?.on("data", (data) => {
+		proc.stdout?.on("data", (data: Buffer) => {
 			stdout += data.toString();
 		});
 
-		proc.stderr?.on("data", (data) => {
+		proc.stderr?.on("data", (data: Buffer) => {
 			stderr += data.toString();
 		});
 
-		proc.on("close", (exitCode) => {
+		proc.on("close", (exitCode: number | null) => {
+			unregister();
 			resolve({ stdout, stderr, exitCode: exitCode ?? 1 });
 		});
 
-		proc.on("error", (err) => {
-			// Maintain backward compatibility - don't reject, include error in stderr
+		proc.on("error", (err: Error) => {
+			unregister();
 			stderr += `\nSpawn error: ${err.message}`;
 			resolve({ stdout, stderr, exitCode: 1 });
 		});
@@ -132,7 +154,9 @@ export function parseStreamJsonResult(output: string): {
 }
 
 /**
- * Check for errors in stream-json output
+ * Check for errors in stream-json output.
+ * Enhanced with pattern matching for rate limits, quota, connection errors,
+ * and model-not-found errors in addition to JSON error types.
  */
 export function checkForErrors(output: string): string | null {
 	const lines = output.split("\n").filter(Boolean);
@@ -146,6 +170,33 @@ export function checkForErrors(output: string): string | null {
 		} catch {
 			// Ignore non-JSON lines
 		}
+
+		// Check for common error patterns in plain text
+		const lowerLine = line.trim().toLowerCase();
+
+		if (lowerLine.includes("rate limit")) {
+			return "Rate Limit: Too many requests. Wait 30-60s before retrying";
+		}
+		if (lowerLine.includes("quota")) {
+			return "Quota Exceeded: You've reached your usage limit";
+		}
+		if (
+			lowerLine.startsWith("fatal:") ||
+			lowerLine.startsWith("error:") ||
+			lowerLine.includes("providermodelnotfounderror") ||
+			lowerLine.includes("model not found") ||
+			lowerLine.includes("invalid model")
+		) {
+			return line.trim();
+		}
+	}
+
+	if (
+		output.includes("Permission denied") ||
+		output.includes("command not found") ||
+		output.toLowerCase().includes("providermodelnotfounderror")
+	) {
+		return output.trim().split("\n").pop() || "Access or command error";
 	}
 
 	return null;
@@ -257,7 +308,8 @@ async function readStream(
 }
 
 /**
- * Execute a command with streaming output, calling onLine for each line
+ * Execute a command with streaming output, calling onLine for each line.
+ * On Node.js, validates command and args and tracks child processes.
  * @param stdinContent - Optional content to pass via stdin (useful for multi-line prompts on Windows)
  */
 export async function execCommandStreaming(
@@ -292,14 +344,25 @@ export async function execCommandStreaming(
 		return { exitCode };
 	}
 
-	// Node.js fallback - use shell on Windows to execute .cmd wrappers
+	// Node.js fallback - validate before execution
+	const validation = validateCommandAndArgs(command, args);
+	if (!validation.valid) {
+		onLine(`Error: ${validation.error}`);
+		return { exitCode: 1 };
+	}
+
 	return new Promise((resolve) => {
-		const proc = spawn(command, args, {
+		const validCmd = validation.command || command;
+		const validArgs = validation.args || args;
+		const proc = spawn(validCmd, validArgs, {
 			cwd: workDir,
 			env: { ...process.env, ...env },
 			stdio: [stdinContent ? "pipe" : "ignore", "pipe", "pipe"],
-			shell: isWindows, // Required on Windows for npm global commands (.cmd wrappers)
+			shell: false, // Disable shell to prevent command injection
 		});
+
+		// Track process for cleanup on exit
+		const unregister = registerProcess(proc);
 
 		// Write stdin content if provided
 		if (stdinContent && proc.stdin) {
@@ -310,7 +373,7 @@ export async function execCommandStreaming(
 		let stdoutBuffer = "";
 		let stderrBuffer = "";
 
-		const processBuffer = (buffer: string, isStderr = false) => {
+		const processBuffer = (buffer: string) => {
 			const lines = buffer.split("\n");
 			const remaining = lines.pop() || "";
 			for (const line of lines) {
@@ -319,25 +382,26 @@ export async function execCommandStreaming(
 			return remaining;
 		};
 
-		proc.stdout?.on("data", (data) => {
+		proc.stdout?.on("data", (data: Buffer) => {
 			stdoutBuffer += data.toString();
 			stdoutBuffer = processBuffer(stdoutBuffer);
 		});
 
-		proc.stderr?.on("data", (data) => {
+		proc.stderr?.on("data", (data: Buffer) => {
 			stderrBuffer += data.toString();
-			stderrBuffer = processBuffer(stderrBuffer, true);
+			stderrBuffer = processBuffer(stderrBuffer);
 		});
 
-		proc.on("close", (exitCode) => {
+		proc.on("close", (exitCode: number | null) => {
+			unregister();
 			// Process any remaining data
 			if (stdoutBuffer.trim()) onLine(stdoutBuffer);
 			if (stderrBuffer.trim()) onLine(stderrBuffer);
 			resolve({ exitCode: exitCode ?? 1 });
 		});
 
-		proc.on("error", (err) => {
-			// Maintain backward compatibility - don't reject, report error via onLine
+		proc.on("error", (err: Error) => {
+			unregister();
 			onLine(`Spawn error: ${err.message}`);
 			resolve({ exitCode: 1 });
 		});

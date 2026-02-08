@@ -6,6 +6,16 @@ import { runLoop } from "./cli/commands/run.ts";
 import { runTask } from "./cli/commands/task.ts";
 import { flushAllProgressWrites } from "./config/writer.ts";
 import { logError } from "./ui/logger.ts";
+import { runCleanup, setupSignalHandlers } from "./utils/cleanup.ts";
+import { standardizeError } from "./utils/errors.ts";
+
+// Setup signal handlers for graceful cleanup of child processes
+setupSignalHandlers();
+
+// Catch unhandled rejections
+process.on("unhandledRejection", (reason) => {
+	logError(`Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+});
 
 async function main(): Promise<void> {
 	try {
@@ -44,11 +54,13 @@ async function main(): Promise<void> {
 		// PRD loop mode
 		await runLoop(options);
 	} catch (error) {
-		logError(error instanceof Error ? error.message : String(error));
+		const standardized = standardizeError(error);
+		logError(standardized.message);
 		process.exitCode = 1;
 	} finally {
-		// Ensure all progress writes are flushed before exit
+		// Ensure all progress writes are flushed and cleanup runs before exit
 		await flushAllProgressWrites();
+		await runCleanup();
 	}
 }
 
