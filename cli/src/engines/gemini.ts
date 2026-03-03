@@ -9,8 +9,6 @@ import {
 } from "./base.ts";
 import type { AIResult, EngineOptions, ProgressCallback } from "./types.ts";
 
-const isWindows = process.platform === "win32";
-
 /**
  * Gemini CLI AI Engine
  * https://github.com/google-gemini/gemini-cli
@@ -18,6 +16,68 @@ const isWindows = process.platform === "win32";
 export class GeminiEngine extends BaseAIEngine {
 	name = "Gemini CLI";
 	cliCommand = "gemini";
+
+	/**
+	 * Build CLI arguments for Gemini
+	 */
+	protected buildArgs(prompt: string, workDir: string, options?: EngineOptions): string[] {
+		const args = ["--output-format", "stream-json", "--yolo"];
+		if (options?.modelOverride) {
+			args.push("--model", options.modelOverride);
+		}
+		// Add any additional engine-specific arguments
+		if (options?.engineArgs && options.engineArgs.length > 0) {
+			args.push(...options.engineArgs);
+		}
+		// Pass prompt via stdin
+		args.push("-p");
+		return args;
+	}
+
+	/**
+	 * Process CLI output into AIResult
+	 */
+	protected processCliResult(
+		stdout: string,
+		stderr: string,
+		exitCode: number,
+		_workDir: string,
+	): AIResult {
+		const output = stdout + stderr;
+
+		// Check for errors
+		const error = checkForErrors(output);
+		if (error) {
+			return {
+				success: false,
+				response: "",
+				inputTokens: 0,
+				outputTokens: 0,
+				error,
+			};
+		}
+
+		// Parse result (same format as Claude/Qwen)
+		const { response, inputTokens, outputTokens } = parseStreamJsonResult(output);
+
+		// If command failed with non-zero exit code, provide a meaningful error
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response,
+				inputTokens,
+				outputTokens,
+				error: formatCommandError(exitCode, output),
+			};
+		}
+
+		return {
+			success: true,
+			response,
+			inputTokens,
+			outputTokens,
+		};
+	}
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
 		const args = ["--output-format", "stream-json", "--yolo"];
@@ -29,14 +89,10 @@ export class GeminiEngine extends BaseAIEngine {
 			args.push(...options.engineArgs);
 		}
 
-		// On Windows, pass prompt via stdin to avoid cmd.exe argument parsing issues with multi-line content
-		let stdinContent: string | undefined;
-		if (isWindows) {
-			args.push("-p");
-			stdinContent = prompt;
-		} else {
-			args.push("-p", prompt);
-		}
+		// Pass prompt via stdin for cross-platform compatibility
+		// This avoids shell escaping issues and argument length limits on all platforms
+		args.push("-p");
+		const stdinContent = prompt;
 
 		const { stdout, stderr, exitCode } = await execCommand(
 			this.cliCommand,
@@ -97,14 +153,10 @@ export class GeminiEngine extends BaseAIEngine {
 			args.push(...options.engineArgs);
 		}
 
-		// On Windows, pass prompt via stdin to avoid cmd.exe argument parsing issues with multi-line content
-		let stdinContent: string | undefined;
-		if (isWindows) {
-			args.push("-p");
-			stdinContent = prompt;
-		} else {
-			args.push("-p", prompt);
-		}
+		// Pass prompt via stdin for cross-platform compatibility
+		// This avoids shell escaping issues and argument length limits on all platforms
+		args.push("-p");
+		const stdinContent = prompt;
 
 		const outputLines: string[] = [];
 

@@ -1,14 +1,7 @@
-import {
-	BaseAIEngine,
-	checkForErrors,
-	detectStepFromOutput,
-	execCommand,
-	execCommandStreaming,
-	formatCommandError,
-} from "./base.ts";
+import { logDebug } from "../ui/logger.ts";
+import { BaseAIEngine, checkForErrors, execCommand, execCommandStreaming } from "./base.ts";
+import { detectStepFromOutput, formatCommandError } from "./parsers.ts";
 import type { AIResult, EngineOptions, ProgressCallback } from "./types.ts";
-
-const isWindows = process.platform === "win32";
 
 /**
  * Factory Droid AI Engine
@@ -17,7 +10,15 @@ export class DroidEngine extends BaseAIEngine {
 	name = "Factory Droid";
 	cliCommand = "droid";
 
-	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
+	protected buildArgs(_prompt: string, _workDir: string, options?: EngineOptions): string[] {
+		const { args } = this.buildArgsInternal(_prompt, options);
+		return args;
+	}
+
+	private buildArgsInternal(
+		prompt: string,
+		options?: EngineOptions,
+	): { args: string[]; stdinContent?: string } {
 		const args = ["exec", "--output-format", "stream-json", "--auto", "medium"];
 		if (options?.modelOverride) {
 			args.push("--model", options.modelOverride);
@@ -27,13 +28,11 @@ export class DroidEngine extends BaseAIEngine {
 			args.push(...options.engineArgs);
 		}
 
-		// On Windows, pass prompt via stdin to avoid cmd.exe argument parsing issues
-		let stdinContent: string | undefined;
-		if (isWindows) {
-			stdinContent = prompt;
-		} else {
-			args.push(prompt);
-		}
+		return this.buildArgsWithStdin(args, prompt);
+	}
+
+	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
+		const { args, stdinContent } = this.buildArgsInternal(prompt, options);
 
 		const { stdout, stderr, exitCode } = await execCommand(
 			this.cliCommand,
@@ -96,8 +95,8 @@ export class DroidEngine extends BaseAIEngine {
 						durationMs = parsed.durationMs;
 					}
 				}
-			} catch {
-				// Ignore non-JSON lines
+			} catch (_err) {
+				logDebug(`Droid: Failed to parse JSON line: ${_err}`);
 			}
 		}
 
@@ -110,22 +109,7 @@ export class DroidEngine extends BaseAIEngine {
 		onProgress: ProgressCallback,
 		options?: EngineOptions,
 	): Promise<AIResult> {
-		const args = ["exec", "--output-format", "stream-json", "--auto", "medium"];
-		if (options?.modelOverride) {
-			args.push("--model", options.modelOverride);
-		}
-		// Add any additional engine-specific arguments
-		if (options?.engineArgs && options.engineArgs.length > 0) {
-			args.push(...options.engineArgs);
-		}
-
-		// On Windows, pass prompt via stdin to avoid cmd.exe argument parsing issues
-		let stdinContent: string | undefined;
-		if (isWindows) {
-			stdinContent = prompt;
-		} else {
-			args.push(prompt);
-		}
+		const { args, stdinContent } = this.buildArgsInternal(prompt, options);
 
 		const outputLines: string[] = [];
 
@@ -181,5 +165,14 @@ export class DroidEngine extends BaseAIEngine {
 			outputTokens: 0,
 			cost: durationMs > 0 ? `duration:${durationMs}` : undefined,
 		};
+	}
+
+	protected processCliResult(
+		_stdout: string,
+		_stderr: string,
+		_exitCode: number,
+		_workDir: string,
+	): AIResult {
+		return { success: true, response: "Not implemented", inputTokens: 0, outputTokens: 0 };
 	}
 }
