@@ -1,7 +1,158 @@
+import { lookup } from "node:dns/promises";
 import type { RalphyConfig } from "../config/types.ts";
-import { logDebug, logError } from "../ui/logger.ts";
+import { logDebug, logError, logWarn } from "../ui/logger.ts";
+
+const MAX_WEBHOOK_RETRIES = 3;
+const INITIAL_RETRY_DELAY_MS = 1000; // 1 second
+const WEBHOOK_TIMEOUT_MS = 30000; // 30 seconds
+
+// Discord embed colors (hex values)
+const DISCORD_COLOR_SUCCESS = 0x22c55e; // green
+const DISCORD_COLOR_FAILURE = 0xef4444; // red
+
+// Private IP ranges that should be blocked for SSRF protection
+const BLOCKED_IP_RANGES = [
+	/^127\./, // 127.0.0.0/8 (localhost)
+	/^10\./, // 10.0.0.0/8
+	/^172\.(1[6-9]|2[0-9]|3[01])\./, // 172.16.0.0/12
+	/^192\.168\./, // 192.168.0.0/16
+	/^169\.254\./, // 169.254.0.0/16 (link-local)
+	/^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./, // 100.64.0.0/10 (CGNAT)
+	/^0\./, // 0.0.0.0/8
+];
+
+const BLOCKED_IPV6_RANGES = [
+	/^::1$/i, // IPv6 localhost
+	/^0+:0+:0+:0+:0+:0+:0+:0+$/i, // :: (all zeros)
+	/^fe80:/i, // IPv6 link-local
+	/^fc00:/i, // IPv6 unique local
+	/^::ffff:127\.\d+\.\d+\.\d+$/i, // IPv4-mapped IPv6 localhost
+	/^::ffff:10\.\d+\.\d+\.\d+$/i, // IPv4-mapped 10.0.0.0/8
+	/^::ffff:192\.168\.\d+\.\d+$/i, // IPv4-mapped 192.168.0.0/16
+	/^::ffff:172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+$/i, // IPv4-mapped 172.16.0.0/12
+	/^::ffff:169\.254\.\d+\.\d+$/i, // IPv4-mapped 169.254.0.0/16
+	/^::ffff:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.\d+\.\d+$/i, // IPv4-mapped CGNAT
+];
+
+const BLOCKED_HOSTS = [/^localhost$/i, /^127\.\d+\.\d+\.\d+$/, /^0\.0\.0\.0$/, /^::1$/i, /^::$/i];
 
 type SessionStatus = "completed" | "failed";
+
+/**
+ * Validate webhook URL for SSRF protection
+ * - Must use HTTPS protocol
+ * - Must not point to private IP ranges
+ * - Must not point to localhost
+ * - Must be a valid URL
+ */
+function isBlockedIp(host: string): boolean {
+	for (const pattern of BLOCKED_IP_RANGES) {
+		if (pattern.test(host)) return true;
+	}
+	for (const pattern of BLOCKED_IPV6_RANGES) {
+		if (pattern.test(host)) return true;
+	}
+	return false;
+}
+
+async function validateWebhookUrl(url: string): Promise<{ valid: boolean; error?: string }> {
+	try {
+		const parsed = new URL(url);
+
+		// Enforce HTTPS only
+		if (parsed.protocol !== "https:") {
+			return { valid: false, error: "Webhook URL must use HTTPS protocol" };
+		}
+
+		if (parsed.username || parsed.password) {
+			return { valid: false, error: "Webhook URL must not include credentials" };
+		}
+
+		// Check for blocked hostnames
+		const hostname = parsed.hostname.toLowerCase();
+		for (const pattern of BLOCKED_HOSTS) {
+			if (pattern.test(hostname)) {
+				return { valid: false, error: `Webhook URL hostname '${hostname}' is not allowed` };
+			}
+		}
+
+		// Check for blocked IP ranges (IPv4)
+		if (isBlockedIp(hostname)) {
+			return { valid: false, error: `Webhook URL IP '${hostname}' is in a blocked range` };
+		}
+
+		// Validate port (if specified, must be standard HTTPS port or common alt ports)
+		if (parsed.port) {
+			const port = Number.parseInt(parsed.port, 10);
+			const allowedPorts = [443, 8443, 9443];
+			if (!allowedPorts.includes(port)) {
+				return {
+					valid: false,
+					error: `Webhook URL port ${port} is not allowed. Allowed ports: ${allowedPorts.join(", ")}`,
+				};
+			}
+		}
+
+		// Resolve DNS and block internal/private addresses (SSRF hardening)
+		const resolved = await lookup(hostname, { all: true, verbatim: true });
+		if (resolved.length === 0) {
+			return { valid: false, error: `Webhook URL hostname '${hostname}' did not resolve` };
+		}
+
+		for (const entry of resolved) {
+			if (isBlockedIp(entry.address)) {
+				return {
+					valid: false,
+					error: `Webhook URL resolves to blocked IP '${entry.address}'`,
+				};
+			}
+		}
+
+		return { valid: true };
+	} catch (error) {
+		return {
+			valid: false,
+			error: `Invalid webhook URL: ${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
+}
+
+/**
+ * Sleep for a specified duration
+ */
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Retry a function with exponential backoff
+ */
+async function retryWithBackoff<T>(
+	fn: () => Promise<T>,
+	context: string,
+	retries: number = MAX_WEBHOOK_RETRIES,
+): Promise<T> {
+	let lastError: Error | undefined;
+
+	for (let attempt = 1; attempt <= retries; attempt++) {
+		try {
+			return await fn();
+		} catch (error) {
+			lastError = error instanceof Error ? error : new Error(String(error));
+
+			// Don't retry on the last attempt
+			if (attempt === retries) {
+				throw lastError;
+			}
+
+			const delay = INITIAL_RETRY_DELAY_MS * 2 ** (attempt - 1);
+			logDebug(`${context} attempt ${attempt} failed, retrying in ${delay}ms...`);
+			await sleep(delay);
+		}
+	}
+
+	throw lastError;
+}
 
 interface NotificationResult {
 	tasksCompleted: number;
@@ -36,23 +187,33 @@ async function sendDiscordNotification(
 		description: result
 			? `${result.tasksCompleted}/${total} tasks succeeded${result.tasksFailed > 0 ? `, ${result.tasksFailed} failed` : ""}`
 			: `Session ${status}`,
-		color: isSuccess ? 0x22c55e : 0xef4444,
+		color: isSuccess ? DISCORD_COLOR_SUCCESS : DISCORD_COLOR_FAILURE,
 		footer: {
 			text: "Ralphy",
 		},
 		timestamp: new Date().toISOString(),
 	};
 
-	const response = await fetch(webhookUrl, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ embeds: [embed] }),
-	});
+	await retryWithBackoff(async () => {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
-	if (!response.ok) {
-		const text = await response.text().catch(() => "");
-		throw new Error(`Discord webhook failed: ${response.status}${text ? ` - ${text}` : ""}`);
-	}
+		try {
+			const response = await fetch(webhookUrl, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ embeds: [embed] }),
+				signal: controller.signal,
+			});
+
+			if (!response.ok) {
+				const text = await response.text().catch(() => "");
+				throw new Error(`Discord webhook failed: ${response.status}${text ? ` - ${text}` : ""}`);
+			}
+		} finally {
+			clearTimeout(timeoutId);
+		}
+	}, "Discord webhook");
 }
 
 /**
@@ -65,16 +226,26 @@ async function sendSlackNotification(
 ): Promise<void> {
 	const message = buildMessage(status, result);
 
-	const response = await fetch(webhookUrl, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ text: message }),
-	});
+	await retryWithBackoff(async () => {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
-	if (!response.ok) {
-		const text = await response.text().catch(() => "");
-		throw new Error(`Slack webhook failed: ${response.status}${text ? ` - ${text}` : ""}`);
-	}
+		try {
+			const response = await fetch(webhookUrl, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ text: message }),
+				signal: controller.signal,
+			});
+
+			if (!response.ok) {
+				const text = await response.text().catch(() => "");
+				throw new Error(`Slack webhook failed: ${response.status}${text ? ` - ${text}` : ""}`);
+			}
+		} finally {
+			clearTimeout(timeoutId);
+		}
+	}, "Slack webhook");
 }
 
 /**
@@ -87,22 +258,32 @@ async function sendCustomNotification(
 ): Promise<void> {
 	const message = buildMessage(status, result);
 
-	const response = await fetch(webhookUrl, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			event: "session_complete",
-			status,
-			message,
-			tasks_completed: result?.tasksCompleted ?? 0,
-			tasks_failed: result?.tasksFailed ?? 0,
-		}),
-	});
+	await retryWithBackoff(async () => {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
-	if (!response.ok) {
-		const text = await response.text().catch(() => "");
-		throw new Error(`Custom webhook failed: ${response.status}${text ? ` - ${text}` : ""}`);
-	}
+		try {
+			const response = await fetch(webhookUrl, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					event: "session_complete",
+					status,
+					message,
+					tasks_completed: result?.tasksCompleted ?? 0,
+					tasks_failed: result?.tasksFailed ?? 0,
+				}),
+				signal: controller.signal,
+			});
+
+			if (!response.ok) {
+				const text = await response.text().catch(() => "");
+				throw new Error(`Custom webhook failed: ${response.status}${text ? ` - ${text}` : ""}`);
+			}
+		} finally {
+			clearTimeout(timeoutId);
+		}
+	}, "Custom webhook");
 }
 
 /**
@@ -122,27 +303,42 @@ export async function sendNotifications(
 	const tasks: Promise<void>[] = [];
 
 	if (discord_webhook && discord_webhook.trim() !== "") {
-		tasks.push(
-			sendDiscordNotification(discord_webhook, status, result).catch((err) => {
-				logError(`Discord notification failed: ${err.message}`);
-			}),
-		);
+		const validation = await validateWebhookUrl(discord_webhook);
+		if (!validation.valid) {
+			logWarn(`Discord webhook validation failed: ${validation.error}`);
+		} else {
+			tasks.push(
+				sendDiscordNotification(discord_webhook, status, result).catch((err) => {
+					logError(`Discord notification failed: ${err.message}`);
+				}),
+			);
+		}
 	}
 
 	if (slack_webhook && slack_webhook.trim() !== "") {
-		tasks.push(
-			sendSlackNotification(slack_webhook, status, result).catch((err) => {
-				logError(`Slack notification failed: ${err.message}`);
-			}),
-		);
+		const validation = await validateWebhookUrl(slack_webhook);
+		if (!validation.valid) {
+			logWarn(`Slack webhook validation failed: ${validation.error}`);
+		} else {
+			tasks.push(
+				sendSlackNotification(slack_webhook, status, result).catch((err) => {
+					logError(`Slack notification failed: ${err.message}`);
+				}),
+			);
+		}
 	}
 
 	if (custom_webhook && custom_webhook.trim() !== "") {
-		tasks.push(
-			sendCustomNotification(custom_webhook, status, result).catch((err) => {
-				logError(`Custom webhook notification failed: ${err.message}`);
-			}),
-		);
+		const validation = await validateWebhookUrl(custom_webhook);
+		if (!validation.valid) {
+			logWarn(`Custom webhook validation failed: ${validation.error}`);
+		} else {
+			tasks.push(
+				sendCustomNotification(custom_webhook, status, result).catch((err) => {
+					logError(`Custom webhook notification failed: ${err.message}`);
+				}),
+			);
+		}
 	}
 
 	if (tasks.length > 0) {

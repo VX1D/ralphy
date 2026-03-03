@@ -56,7 +56,7 @@ export class TelemetryWriter {
 	async writeSession(session: Session | SessionFull): Promise<void> {
 		await this.ensureDir();
 		const path = join(this.outputDir, SESSIONS_FILE);
-		const line = JSON.stringify(session) + "\n";
+		const line = `${JSON.stringify(session)}\n`;
 		await appendFile(path, line, "utf-8");
 	}
 
@@ -68,7 +68,7 @@ export class TelemetryWriter {
 
 		await this.ensureDir();
 		const path = join(this.outputDir, TOOL_CALLS_FILE);
-		const lines = toolCalls.map((call) => JSON.stringify(call)).join("\n") + "\n";
+		const lines = `${toolCalls.map((call) => JSON.stringify(call)).join("\n")}\n`;
 		await appendFile(path, lines, "utf-8");
 	}
 
@@ -92,7 +92,16 @@ export class TelemetryWriter {
 		const content = await readFile(path, "utf-8");
 		const lines = content.trim().split("\n").filter(Boolean);
 
-		return lines.map((line) => JSON.parse(line) as Session | SessionFull);
+		// BUG FIX: Wrap JSON.parse in try-catch to handle corrupt data
+		const sessions: Array<Session | SessionFull> = [];
+		for (const line of lines) {
+			try {
+				sessions.push(JSON.parse(line) as Session | SessionFull);
+			} catch {
+				// Skip corrupt lines
+			}
+		}
+		return sessions;
 	}
 
 	/**
@@ -108,7 +117,16 @@ export class TelemetryWriter {
 		const content = await readFile(path, "utf-8");
 		const lines = content.trim().split("\n").filter(Boolean);
 
-		return lines.map((line) => JSON.parse(line) as ToolCall);
+		// BUG FIX: Wrap JSON.parse in try-catch to handle corrupt data
+		const toolCalls: ToolCall[] = [];
+		for (const line of lines) {
+			try {
+				toolCalls.push(JSON.parse(line) as ToolCall);
+			} catch {
+				// Skip corrupt lines
+			}
+		}
+		return toolCalls;
 	}
 
 	/**
