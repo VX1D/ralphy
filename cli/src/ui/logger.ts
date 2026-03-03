@@ -240,18 +240,14 @@ export function logErrorContext(component: string, ...args: unknown[]): void {
  * Log debug message (only in verbose mode)
  */
 export function logDebug(...args: unknown[]): void {
-	if (loggerState.verboseMode) {
-		log("debug", undefined, ...args);
-	}
+	log("debug", undefined, ...args);
 }
 
 /**
  * Log debug message with component context
  */
 export function logDebugContext(component: string, ...args: unknown[]): void {
-	if (loggerState.verboseMode) {
-		log("debug", component, ...args);
-	}
+	log("debug", component, ...args);
 }
 
 /**

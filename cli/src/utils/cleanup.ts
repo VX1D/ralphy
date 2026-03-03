@@ -8,6 +8,10 @@ const cleanupRegistry: Set<CleanupFn> = new Set();
 const trackedProcesses: Set<ChildProcess> = new Set();
 let isCleaningUp = false;
 
+function isProcessRunning(proc: ChildProcess): boolean {
+	return proc.exitCode === null && proc.signalCode === null;
+}
+
 /**
  * Register a function to be called on process exit or manual cleanup
  */
@@ -40,7 +44,7 @@ export async function runCleanup(): Promise<void> {
 	// 1. Kill all tracked child processes with verification
 	for (const proc of trackedProcesses) {
 		try {
-			if (proc.connected || proc.pid) {
+			if (proc.pid && isProcessRunning(proc)) {
 				const pid = proc.pid;
 
 				if (process.platform === "win32") {
@@ -57,6 +61,11 @@ export async function runCleanup(): Promise<void> {
 							logDebug(`taskkill stderr: ${result.stderr.toString()}`);
 						}
 					}
+
+					await new Promise((resolve) => setTimeout(resolve, 500));
+					if (isProcessRunning(proc)) {
+						logWarn(`Process ${pid} may still be running after taskkill`);
+					}
 				} else {
 					// Try graceful termination first
 					proc.kill("SIGTERM");
@@ -65,12 +74,13 @@ export async function runCleanup(): Promise<void> {
 					await new Promise((resolve) => setTimeout(resolve, 1000));
 
 					// Check if process is still running
-					if (proc.connected || proc.pid) {
+					if (isProcessRunning(proc)) {
 						proc.kill("SIGKILL");
 
 						// Final verification
 						await new Promise((resolve) => setTimeout(resolve, 500));
-						if (proc.connected || proc.pid) {
+						if (isProcessRunning(proc)) {
+							logWarn(`Failed to terminate process ${pid} after SIGKILL`);
 						}
 					}
 				}

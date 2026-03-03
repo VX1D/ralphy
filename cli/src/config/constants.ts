@@ -1,6 +1,9 @@
 export const PROGRESS_UPDATE_INTERVAL = 500;
 export const HEARTBEAT_INTERVAL = 5000;
-export const MAX_RETRIES = 3;
+// Default retry count used by CLI/runtime options.
+export const DEFAULT_MAX_RETRIES = 3;
+// Legacy alias retained for older modules.
+export const MAX_RETRIES = DEFAULT_MAX_RETRIES;
 export const UI_LABELS = {
 	PLANNING: "[PLANNING]",
 	EXECUTION: "[EXECUTION]",
@@ -15,7 +18,6 @@ export const WATCHER_DEBOUNCE = 250;
 export const PLANNING_COOLDOWN = 2000;
 
 // CLI Defaults
-export const DEFAULT_MAX_RETRIES = 3;
 export const DEFAULT_RETRY_DELAY = 5;
 export const DEFAULT_MAX_PARALLEL = 3;
 export const DEFAULT_MAX_REPLANS = 3;

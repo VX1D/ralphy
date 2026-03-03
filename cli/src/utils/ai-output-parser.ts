@@ -28,8 +28,9 @@ export function parseAIStep(step: string): ParsedStep {
 		}
 
 		// Extract text/response content
-		if (TextSchema.safeParse(event).success) {
-			const textEvent = TextSchema.parse(event);
+		const textResult = TextSchema.safeParse(event);
+		if (textResult.success) {
+			const textEvent = textResult.data;
 			if (textEvent.part?.text) {
 				const text = textEvent.part.text;
 

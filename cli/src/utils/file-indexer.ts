@@ -79,9 +79,6 @@ interface SerializedFileIndex {
 // In-memory cache of file indexes
 const indexCache = new Map<string, FileIndex>();
 
-// Track workspaces currently being indexed to prevent concurrent indexing
-const _indexingLocks = new Set<string>();
-
 // Track promises for workspaces being indexed to allow waiting
 const indexingPromises = new Map<string, Promise<FileIndex>>();
 
