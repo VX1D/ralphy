@@ -181,6 +181,7 @@ export interface Exporter {
 class InMemoryMetricsCollector implements MetricsCollector {
 	private metrics: Map<string, Metric> = new Map();
 	private histogramBuckets: Map<string, number[]> = new Map();
+	private static readonly MAX_HISTOGRAM_SAMPLES = 10000;
 
 	counter(name: string, value = 1, labels?: MetricLabels): void {
 		const key = this.getMetricKey(name, labels);
@@ -221,9 +222,12 @@ class InMemoryMetricsCollector implements MetricsCollector {
 		const key = this.getMetricKey(name, labels);
 		const bucketKey = `${key}_buckets`;
 
-		// Store raw values for histogram calculation
+		// Store raw values for histogram calculation (capped)
 		const buckets = this.histogramBuckets.get(bucketKey) || [];
 		buckets.push(value);
+		if (buckets.length > InMemoryMetricsCollector.MAX_HISTOGRAM_SAMPLES) {
+			buckets.shift();
+		}
 		this.histogramBuckets.set(bucketKey, buckets);
 
 		// Calculate histogram stats

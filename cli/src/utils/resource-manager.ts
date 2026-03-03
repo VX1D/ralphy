@@ -170,7 +170,7 @@ export class ResourceManager {
 			}
 
 			const stats = statSync(resolvedPath);
-			const resourceId = `file-${Date.now()}`;
+			const resourceId = `file-${Date.now()}-${generateSecureId()}`;
 
 			this.resources.set(resourceId, {
 				id: resourceId,
@@ -225,7 +225,12 @@ export class ResourceManager {
 		const resourceId = `memory-${Date.now()}-${generateSecureId()}`;
 
 		// Estimate memory usage (rough approximation)
-		const size = JSON.stringify(data).length * 2; // UTF-16 bytes
+		let size = 0;
+		try {
+			size = JSON.stringify(data).length * 2; // UTF-16 bytes
+		} catch {
+			// Non-serializable values (e.g. circular refs, BigInt) are allowed; skip size estimate.
+		}
 
 		this.resources.set(resourceId, {
 			id: resourceId,

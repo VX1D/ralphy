@@ -23,10 +23,30 @@ function debugLog(...args: unknown[]): void {
  * Only allows alphanumeric characters, hyphens, underscores, and dots
  * Also allows forward slashes for path-based commands (e.g., ./node_modules/.bin/cli)
  */
+function tokenizeCommand(command: string): string[] {
+	const tokens: string[] = [];
+	const regex = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
+	let match: RegExpExecArray | null;
+
+	while ((match = regex.exec(command)) !== null) {
+		tokens.push(match[1] ?? match[2] ?? match[0]);
+	}
+
+	return tokens;
+}
+
 export function validateCommand(command: string): string | null {
+	const trimmedCommand = command.trim();
+	if (!trimmedCommand) {
+		debugLog("Command validation failed: command is empty");
+		return null;
+	}
+
 	// Check command length to prevent DoS
-	if (command.length > MAX_COMMAND_LENGTH) {
-		debugLog(`Command validation failed: command too long (${command.length} > ${MAX_COMMAND_LENGTH})`);
+	if (trimmedCommand.length > MAX_COMMAND_LENGTH) {
+		debugLog(
+			`Command validation failed: command too long (${trimmedCommand.length} > ${MAX_COMMAND_LENGTH})`,
+		);
 		return null;
 	}
 
@@ -42,21 +62,37 @@ export function validateCommand(command: string): string | null {
 	];
 
 	for (const pattern of dangerousPatterns) {
-		if (pattern.test(command)) {
-			debugLog(`Command validation failed: dangerous pattern detected in "${command}"`);
+		if (pattern.test(trimmedCommand)) {
+			debugLog(`Command validation failed: dangerous pattern detected in "${trimmedCommand}"`);
 			return null;
 		}
 	}
 
-	// Allow valid command characters: alphanumeric, hyphen, underscore, dot, forward slash, backslash (Windows)
-	const validCommandPattern = isWindows ? /^[a-zA-Z0-9._\-\\]+$/ : /^[a-zA-Z0-9._\-/]+$/;
-
-	if (!validCommandPattern.test(command)) {
-		debugLog(`Command validation failed: invalid characters in "${command}"`);
+	const tokens = tokenizeCommand(trimmedCommand);
+	if (tokens.length === 0) {
+		debugLog("Command validation failed: no command token found");
 		return null;
 	}
 
-	return command;
+	const [commandToken, ...args] = tokens;
+
+	// Allow executable characters: alphanumeric, hyphen, underscore, dot, slashes.
+	// Windows also needs drive-letter colon support (e.g., C:\tools\bun.exe).
+	const validCommandPattern = isWindows
+		? /^[a-zA-Z0-9._\-\\/:]+$/
+		: /^[a-zA-Z0-9._\-/]+$/;
+
+	if (!validCommandPattern.test(commandToken)) {
+		debugLog(`Command validation failed: invalid command token "${commandToken}"`);
+		return null;
+	}
+
+	if (args.length > 0 && !validateArgs(args)) {
+		debugLog(`Command validation failed: invalid args in "${trimmedCommand}"`);
+		return null;
+	}
+
+	return trimmedCommand;
 }
 
 /**
