@@ -26,6 +26,7 @@ const BLOCKED_IPV6_RANGES = [
 	/^0+:0+:0+:0+:0+:0+:0+:0+$/i, // :: (all zeros)
 	/^fe80:/i, // IPv6 link-local
 	/^fc00:/i, // IPv6 unique local
+	/^fd00:/i, // IPv6 unique local (fd00::/8)
 	/^::ffff:127\.\d+\.\d+\.\d+$/i, // IPv4-mapped IPv6 localhost
 	/^::ffff:10\.\d+\.\d+\.\d+$/i, // IPv4-mapped 10.0.0.0/8
 	/^::ffff:192\.168\.\d+\.\d+$/i, // IPv4-mapped 192.168.0.0/16
@@ -117,6 +118,19 @@ async function validateWebhookUrl(url: string): Promise<{ valid: boolean; error?
 	}
 }
 
+async function assertDnsStillSafe(webhookUrl: string): Promise<void> {
+	const hostname = new URL(webhookUrl).hostname.toLowerCase();
+	const resolved = await lookup(hostname, { all: true, verbatim: true });
+	if (resolved.length === 0) {
+		throw new Error(`Webhook hostname '${hostname}' no longer resolves`);
+	}
+	for (const entry of resolved) {
+		if (isBlockedIp(entry.address)) {
+			throw new Error(`Webhook hostname '${hostname}' resolved to blocked IP '${entry.address}'`);
+		}
+	}
+}
+
 /**
  * Sleep for a specified duration
  */
@@ -195,6 +209,8 @@ async function sendDiscordNotification(
 	};
 
 	await retryWithBackoff(async () => {
+		await assertDnsStillSafe(webhookUrl);
+
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
@@ -227,6 +243,8 @@ async function sendSlackNotification(
 	const message = buildMessage(status, result);
 
 	await retryWithBackoff(async () => {
+		await assertDnsStillSafe(webhookUrl);
+
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
@@ -259,6 +277,8 @@ async function sendCustomNotification(
 	const message = buildMessage(status, result);
 
 	await retryWithBackoff(async () => {
+		await assertDnsStillSafe(webhookUrl);
+
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 

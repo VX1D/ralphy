@@ -200,6 +200,11 @@ export class ProgressDisplay {
 				lines.push(` Pending: ${taskTrunc}${rewardInfo}`);
 			}
 		}
+
+		clearConsole(this.lastLineCount);
+		for (const line of lines) {
+			process.stdout.write(`${line}\n`);
+		}
 		this.lastLineCount = lines.length;
 	}
 

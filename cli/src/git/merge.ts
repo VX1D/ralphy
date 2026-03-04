@@ -125,6 +125,11 @@ export async function createIntegrationBranch(
 	// Checkout base branch first
 	await git.checkout(baseBranch);
 
+	// Recreate branch from base to avoid stale integration state
+	if (await branchExists(branchName, workDir)) {
+		await git.deleteLocalBranch(branchName, true);
+	}
+
 	// Create and checkout new branch from base
 	await git.checkoutLocalBranch(branchName);
 
