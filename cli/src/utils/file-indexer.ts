@@ -644,7 +644,7 @@ export async function indexWorkspace(
 
 	// Check if another operation is already indexing this workspace
 	const existingPromise = indexingPromises.get(workDir);
-	if (existingPromise) {
+	if (existingPromise && !forceRebuild) {
 		logDebug(`Waiting for concurrent indexing of ${workDir}...`);
 		const result = await existingPromise;
 		// Return a clone even from the concurrent operation's result
