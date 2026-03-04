@@ -13,13 +13,19 @@ import { standardizeError } from "./utils/errors.ts";
 setupSignalHandlers();
 
 // Handle unhandled promise rejections globally
-process.on("unhandledRejection", (reason, promise) => {
-	// BUG FIX: Preserve error stack traces for better debugging
+process.on("unhandledRejection", (reason, _promise) => {
 	const errorMessage =
 		reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason);
 	logError(`Unhandled Promise Rejection: ${errorMessage}`);
-	logError(`Promise: ${promise}`);
-	// Don't crash, but log and continue - prevent uncaught exception
+	runCleanup()
+		.catch((cleanupError: unknown) => {
+			logError(
+				`Cleanup failed during unhandled rejection: ${cleanupError instanceof Error ? cleanupError.message : cleanupError}`,
+			);
+		})
+		.finally(() => {
+			process.exit(1);
+		});
 });
 
 // Handle uncaught exceptions globally
