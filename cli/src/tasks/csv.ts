@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import { logWarn } from "../ui/logger.ts";
 import type { Task, TaskSource } from "./types.ts";
 
 /**
@@ -155,7 +156,7 @@ export class CsvTaskSource implements TaskSource {
 		const resolvedTitleIndex = titleIndex >= 0 ? titleIndex : 1;
 		const resolvedDoneIndex = doneIndex >= 0 ? doneIndex : 2;
 		if (doneIndex < 0) {
-			console.warn(
+			logWarn(
 				`CSV markComplete: no 'done'/'completed' header found for ${this.filePath}, falling back to column index 2.`,
 			);
 		}

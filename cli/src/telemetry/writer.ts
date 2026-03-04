@@ -7,6 +7,7 @@
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { logDebug } from "../ui/logger.ts";
 import type { Session, SessionFull, ToolCall } from "./types.js";
 
 const DEFAULT_OUTPUT_DIR = ".ralphy/telemetry";
@@ -91,8 +92,16 @@ export class TelemetryWriter {
 
 		const content = await readFile(path, "utf-8");
 		const lines = content.trim().split("\n").filter(Boolean);
+		const sessions: Array<Session | SessionFull> = [];
+		for (const line of lines) {
+			try {
+				sessions.push(JSON.parse(line) as Session | SessionFull);
+			} catch (error) {
+				logDebug(`Skipping invalid telemetry session line: ${error}`);
+			}
+		}
 
-		return lines.map((line) => JSON.parse(line) as Session | SessionFull);
+		return sessions;
 	}
 
 	/**
@@ -107,8 +116,16 @@ export class TelemetryWriter {
 
 		const content = await readFile(path, "utf-8");
 		const lines = content.trim().split("\n").filter(Boolean);
+		const toolCalls: ToolCall[] = [];
+		for (const line of lines) {
+			try {
+				toolCalls.push(JSON.parse(line) as ToolCall);
+			} catch (error) {
+				logDebug(`Skipping invalid telemetry tool-call line: ${error}`);
+			}
+		}
 
-		return lines.map((line) => JSON.parse(line) as ToolCall);
+		return toolCalls;
 	}
 
 	/**

@@ -132,6 +132,9 @@ function parseSkillFile(
 
 		if (frontmatterMatch) {
 			const frontmatter = YAML.parse(frontmatterMatch[1]) as SkillFrontmatter;
+			if (hasPrototypePollution(frontmatter)) {
+				return null;
+			}
 			const body = frontmatterMatch[2].trim();
 
 			return {

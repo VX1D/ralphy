@@ -22,7 +22,7 @@ process.on("unhandledRejection", (reason, promise) => {
 	// Don't crash, but log and continue - prevent uncaught exception
 });
 
-	// Handle uncaught exceptions globally
+// Handle uncaught exceptions globally
 process.on("uncaughtException", (error) => {
 	logError(`Uncaught Exception: ${error.message}`);
 	logError(`Stack: ${error.stack}`);
@@ -33,9 +33,7 @@ process.on("uncaughtException", (error) => {
 			);
 		})
 		.finally(() => {
-			// Set exit code instead of calling exit immediately
-			// This allows the cleanup promise to resolve before Node.js exits
-			process.exitCode = 1;
+			process.exit(1);
 		});
 });
 
