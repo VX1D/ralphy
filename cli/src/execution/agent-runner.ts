@@ -523,6 +523,7 @@ export async function runAgentInWorktree(
 		);
 		worktreeDir = worktree.worktreeDir;
 		branchName = worktree.branchName;
+		options.onWorktreeCreated?.(worktreeDir, branchName);
 
 		logDebug(`Agent ${agentNum}: Created worktree at ${worktreeDir}`);
 
@@ -571,7 +572,12 @@ function copyPrdResources(
 		throw new Error(`Invalid PRD path outside project: ${prdFile}`);
 	}
 
-	if (prdSource === "markdown" || prdSource === "yaml") {
+	if (
+		prdSource === "markdown" ||
+		prdSource === "yaml" ||
+		prdSource === "json" ||
+		prdSource === "csv"
+	) {
 		const srcPath = join(originalDir, safePrdPath);
 		const destPath = join(targetDir, safePrdPath);
 		if (existsSync(srcPath)) {

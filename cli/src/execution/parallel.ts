@@ -576,6 +576,9 @@ export async function runParallel(
 					debug,
 					debugOpenCode,
 					allowOpenCodeSandboxAccess,
+					onWorktreeCreated: (worktreeDir, branchName) => {
+						trackWorktree(workDir, worktreeDir, branchName);
+					},
 					logThoughts: options.logThoughts,
 					onProgress: (step) => {
 						// Detect OpenCode JSON and parse it properly
@@ -609,7 +612,7 @@ export async function runParallel(
 
 			// Helper to determine if a rejection is planning-related
 			const isPlanningRejection = (error: string): boolean => {
-				const planningKeywords = ["planning", "timeout", "model", "analysis", "cache"];
+				const planningKeywords = ["planning phase", "plan task files", "file analysis"];
 				return planningKeywords.some((keyword) => error.toLowerCase().includes(keyword));
 			};
 
@@ -788,7 +791,6 @@ export async function runParallel(
 							logDebug(`Cleaned up sandbox: ${worktreeDir}`);
 						}
 					} else {
-						trackWorktree(workDir, worktreeDir, finalBranchName || "");
 						worktreesToCleanup.push({ worktreeDir, branchName: finalBranchName || "" });
 					}
 				}

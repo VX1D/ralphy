@@ -6,7 +6,16 @@
  * State is persisted in the same format as the input source (YAML, JSON, CSV, MD).
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	renameSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import YAML from "yaml";
 import { RALPHY_DIR } from "../config/loader.ts";
@@ -59,8 +68,15 @@ export class TaskStateManager {
 	private sourceType: TaskSourceType;
 	private sourcePath: string;
 	private static readonly STATE_VERSION = 1;
+	private static readonly CLAIM_LOCK_TIMEOUT_MS = 5000;
+	private static readonly CLAIM_LOCK_RETRY_MS = 50;
 
-	constructor(workDir: string, sourceType: TaskSourceType, sourcePath: string, format: StateFormat = "yaml") {
+	constructor(
+		workDir: string,
+		sourceType: TaskSourceType,
+		sourcePath: string,
+		format: StateFormat = "yaml",
+	) {
 		this.sourceType = sourceType;
 		this.sourcePath = sourcePath;
 		this.format = format;
@@ -137,28 +153,36 @@ export class TaskStateManager {
 	 * Returns true if the task was claimed (was in PENDING state), false otherwise.
 	 */
 	async claimTaskForExecution(taskId: string): Promise<boolean> {
-		const key = this.buildTaskKey(taskId);
-		const task = this.tasks.get(key);
+		const release = await this.acquireClaimLock();
 
-		if (!task) {
-			logError(`Task ${taskId} not found in state manager`);
-			return false;
+		try {
+			await this.loadState();
+
+			const key = this.buildTaskKey(taskId);
+			const task = this.tasks.get(key);
+
+			if (!task) {
+				logError(`Task ${taskId} not found in state manager`);
+				return false;
+			}
+
+			// Only allow claiming if task is pending
+			if (task.state !== TaskState.PENDING) {
+				logDebug(`Task ${taskId} cannot be claimed - state is ${task.state}`);
+				return false;
+			}
+
+			// Atomically transition to running
+			task.state = TaskState.RUNNING;
+			task.attemptCount++;
+			task.lastAttemptTime = Date.now();
+			await this.persistState();
+
+			logDebug(`Task ${taskId} claimed for execution (attempt ${task.attemptCount})`);
+			return true;
+		} finally {
+			release();
 		}
-
-		// Only allow claiming if task is pending
-		if (task.state !== TaskState.PENDING) {
-			logDebug(`Task ${taskId} cannot be claimed - state is ${task.state}`);
-			return false;
-		}
-
-		// Atomically transition to running
-		task.state = TaskState.RUNNING;
-		task.attemptCount++;
-		task.lastAttemptTime = Date.now();
-		await this.persistState();
-
-		logDebug(`Task ${taskId} claimed for execution (attempt ${task.attemptCount})`);
-		return true;
 	}
 
 	/**
@@ -227,7 +251,39 @@ export class TaskStateManager {
 		const key = this.buildTaskKey(taskId);
 		const task = this.tasks.get(key);
 		if (!task) return false;
-		return task.attemptCount > maxRetries;
+		return task.attemptCount >= maxRetries;
+	}
+
+	private async acquireClaimLock(): Promise<() => void> {
+		const lockPath = `${this.stateFilePath}.claim.lock`;
+		const deadline = Date.now() + TaskStateManager.CLAIM_LOCK_TIMEOUT_MS;
+
+		while (true) {
+			try {
+				const fd = openSync(lockPath, "wx");
+				writeFileSync(fd, String(process.pid));
+
+				return () => {
+					try {
+						closeSync(fd);
+					} catch {
+						// ignore close errors
+					}
+					try {
+						if (existsSync(lockPath)) {
+							unlinkSync(lockPath);
+						}
+					} catch {
+						// ignore unlock errors
+					}
+				};
+			} catch {
+				if (Date.now() >= deadline) {
+					throw new Error("Timeout acquiring task-state claim lock");
+				}
+				await new Promise((resolve) => setTimeout(resolve, TaskStateManager.CLAIM_LOCK_RETRY_MS));
+			}
+		}
 	}
 
 	/**
@@ -454,7 +510,9 @@ export class TaskStateManager {
 			}
 
 			if (data.version !== TaskStateManager.STATE_VERSION) {
-				logDebug(`Migrating state file from version ${data.version} to ${TaskStateManager.STATE_VERSION}`);
+				logDebug(
+					`Migrating state file from version ${data.version} to ${TaskStateManager.STATE_VERSION}`,
+				);
 			}
 
 			// Validate tasks is an object before creating Map
@@ -476,7 +534,15 @@ export class TaskStateManager {
 	 * Convert state to CSV format.
 	 */
 	private toCSV(data: StateFileFormat): string {
-		const headers = ["key", "id", "title", "state", "attemptCount", "lastAttemptTime", "errorHistory"];
+		const headers = [
+			"key",
+			"id",
+			"title",
+			"state",
+			"attemptCount",
+			"lastAttemptTime",
+			"errorHistory",
+		];
 		const rows = Object.entries(data.tasks).map(([key, task]) => [
 			key,
 			task.id,
@@ -487,32 +553,41 @@ export class TaskStateManager {
 			task.errorHistory.join("|"),
 		]);
 
-		return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+		return [
+			headers.map((h) => this.csvField(h)).join(","),
+			...rows.map((r) => r.map((v) => this.csvField(v)).join(",")),
+		].join("\n");
 	}
 
 	/**
 	 * Parse state from CSV format.
 	 */
 	private fromCSV(content: string): StateFileFormat {
-		const lines = content.trim().split("\n");
-		if (lines.length < 2) {
-			return { version: TaskStateManager.STATE_VERSION, lastUpdated: new Date().toISOString(), tasks: {} };
+		const records = this.parseCsvRecords(content);
+		if (records.length < 2) {
+			return {
+				version: TaskStateManager.STATE_VERSION,
+				lastUpdated: new Date().toISOString(),
+				tasks: {},
+			};
 		}
 
 		const tasks: Record<string, TaskStateEntry> = {};
-		for (let i = 1; i < lines.length; i++) {
-			const line = lines[i];
-			if (!line || line.trim().length === 0) continue;
+		for (let i = 1; i < records.length; i++) {
+			const line = records[i];
+			if (!line || line.trim().length === 0) {
+				continue;
+			}
 
-			const parts = line.split(",");
+			const parts = this.parseCSVLine(line);
 			if (parts.length >= 4) {
-				const key = parts[0]?.trim();
-				const id = parts[1]?.trim();
-				const title = parts[2]?.trim();
-				const state = parts[3]?.trim() as TaskState;
-				const attemptCount = parts[4]?.trim();
-				const lastAttemptTime = parts[5]?.trim();
-				const errorHistory = parts[6]?.trim();
+				const key = parts[0];
+				const id = parts[1];
+				const title = parts[2];
+				const state = parts[3] as TaskState;
+				const attemptCount = parts[4];
+				const lastAttemptTime = parts[5];
+				const errorHistory = parts[6];
 
 				// Skip entries with invalid key
 				if (!key) continue;
@@ -528,8 +603,10 @@ export class TaskStateManager {
 					id: id || key,
 					title: title || "Unknown",
 					state: state,
-					attemptCount: attemptCount ? parseInt(attemptCount, 10) || 0 : 0,
-					lastAttemptTime: lastAttemptTime ? parseInt(lastAttemptTime, 10) || undefined : undefined,
+					attemptCount: attemptCount ? Number.parseInt(attemptCount, 10) || 0 : 0,
+					lastAttemptTime: lastAttemptTime
+						? Number.parseInt(lastAttemptTime, 10) || undefined
+						: undefined,
 					errorHistory: errorHistory ? errorHistory.split("|").filter(Boolean) : [],
 				};
 			}
@@ -540,6 +617,81 @@ export class TaskStateManager {
 			lastUpdated: new Date().toISOString(),
 			tasks,
 		};
+	}
+
+	private csvField(value: string | number): string {
+		const str = String(value);
+		if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+			return `"${str.replace(/"/g, '""')}"`;
+		}
+		return str;
+	}
+
+	private parseCsvRecords(content: string): string[] {
+		const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+		const records: string[] = [];
+		let current = "";
+		let inQuotes = false;
+
+		for (let i = 0; i < normalized.length; i++) {
+			const char = normalized[i];
+
+			if (char === '"') {
+				if (inQuotes && normalized[i + 1] === '"') {
+					current += '""';
+					i++;
+				} else {
+					inQuotes = !inQuotes;
+					current += char;
+				}
+				continue;
+			}
+
+			if (char === "\n" && !inQuotes) {
+				records.push(current);
+				current = "";
+				continue;
+			}
+
+			current += char;
+		}
+
+		if (current.length > 0) {
+			records.push(current);
+		}
+
+		return records.filter((record) => record.trim().length > 0);
+	}
+
+	private parseCSVLine(line: string): string[] {
+		const parts: string[] = [];
+		let current = "";
+		let inQuotes = false;
+
+		for (let i = 0; i < line.length; i++) {
+			const char = line[i];
+
+			if (char === '"') {
+				if (inQuotes && line[i + 1] === '"') {
+					current += '"';
+					i++;
+				} else {
+					inQuotes = !inQuotes;
+				}
+				continue;
+			}
+
+			if (char === "," && !inQuotes) {
+				parts.push(current.trim());
+				current = "";
+				continue;
+			}
+
+			current += char;
+		}
+
+		parts.push(current.trim());
+		return parts;
 	}
 
 	/**
@@ -590,7 +742,7 @@ export class TaskStateManager {
 				if (line.startsWith("- **State**: ")) {
 					task.state = line.replace("- **State**: ", "").trim() as TaskState;
 				} else if (line.startsWith("- **Attempt Count**: ")) {
-					task.attemptCount = parseInt(line.replace("- **Attempt Count**: ", ""), 10) || 0;
+					task.attemptCount = Number.parseInt(line.replace("- **Attempt Count**: ", ""), 10) || 0;
 				} else if (line.startsWith("- **Last Attempt**: ")) {
 					const dateStr = line.replace("- **Last Attempt**: ", "").trim();
 					task.lastAttemptTime = new Date(dateStr).getTime();

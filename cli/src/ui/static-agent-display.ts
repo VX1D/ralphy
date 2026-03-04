@@ -21,6 +21,7 @@ export class StaticAgentDisplay {
 	private displayInterval: NodeJS.Timeout | null = null;
 
 	constructor() {
+		StaticAgentDisplay.instance?.stopDisplay();
 		StaticAgentDisplay.instance = this;
 	}
 	static getInstance(): StaticAgentDisplay | null {
@@ -212,9 +213,16 @@ export class StaticAgentDisplay {
 	private getActionColor(action: string): string {
 		const lower = action.toLowerCase();
 		if (lower === "tool" || lower === "run" || lower === "execute") return c.yel;
-		if (lower === "read" || lower === "glob" || lower === "grep" || lower === "search" || lower === "analyze")
+		if (
+			lower === "read" ||
+			lower === "glob" ||
+			lower === "grep" ||
+			lower === "search" ||
+			lower === "analyze"
+		)
 			return c.blu;
-		if (lower === "write" || lower === "edit" || lower === "create" || lower === "delete") return c.mag;
+		if (lower === "write" || lower === "edit" || lower === "create" || lower === "delete")
+			return c.mag;
 		if (lower === "test" || lower === "build") return c.grn;
 		if (lower === "fix" || lower === "debug") return c.red;
 		return c.wht;
@@ -234,7 +242,8 @@ export class StaticAgentDisplay {
 		const phaseColor = phase === "planning" ? c.cyn : phase === "execution" ? c.mag : c.yel;
 		const phaseTag = `${phaseColor}[${phase.toUpperCase()}]${c.rst}`;
 		const modelTag = `${c.gry}[${c.blu}${model}${c.gry}]${c.rst}`;
-		const title = agent.taskTitle.length > 30 ? `${agent.taskTitle.slice(0, 27)}...` : agent.taskTitle;
+		const title =
+			agent.taskTitle.length > 30 ? `${agent.taskTitle.slice(0, 27)}...` : agent.taskTitle;
 
 		return `${status} ${c.bld}Agent ${agent.agentNum}${c.rst} ${phaseTag} ${c.wht}${title}${c.rst} ${modelTag} ${c.gry}${elapsed}${c.rst}`;
 	}

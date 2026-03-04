@@ -46,6 +46,7 @@ function syncDirectory(
 	dest: string,
 	ignorePatterns: (item: string) => boolean,
 	currentDepth = 0,
+	rootSrc: string = src,
 ): { filesCopied: number; filesDeleted: number } {
 	// Prevent stack overflow from deeply nested directories
 	if (currentDepth > MAX_SYNC_DEPTH) {
@@ -88,7 +89,7 @@ function syncDirectory(
 			if (existsSync(destPath) && !lstatSync(destPath).isDirectory()) {
 				rmSync(destPath, { force: true });
 			}
-			const subResult = syncDirectory(srcPath, destPath, ignorePatterns, currentDepth + 1);
+			const subResult = syncDirectory(srcPath, destPath, ignorePatterns, currentDepth + 1, rootSrc);
 			filesCopied += subResult.filesCopied;
 			filesDeleted += subResult.filesDeleted;
 		} else if (srcStat.isFile()) {
@@ -126,7 +127,7 @@ function syncDirectory(
 
 				// Validate symlink target to prevent sandbox escape
 				const resolvedTarget = resolve(dirname(srcPath), target);
-				const resolvedSrcBase = resolve(src);
+				const resolvedSrcBase = resolve(rootSrc);
 				const relativeTarget = relative(resolvedSrcBase, resolvedTarget);
 				if (
 					relativeTarget.startsWith("..") ||

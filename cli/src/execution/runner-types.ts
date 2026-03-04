@@ -34,6 +34,8 @@ export interface AgentRunnerOptions {
 	noGitParallel?: boolean;
 	/** Use semantic chunking to select relevant files (default: true) */
 	useSemanticChunking?: boolean;
+	/** Called right after worktree creation for crash-safe tracking */
+	onWorktreeCreated?: (worktreeDir: string, branchName: string) => void;
 }
 
 export interface ParallelAgentResult {
