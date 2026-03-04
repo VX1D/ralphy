@@ -16,9 +16,6 @@ interface LockInfo {
 // Unified lock structure for better performance
 const locks = new Map<string, LockInfo>();
 const lockOwner = `${process.pid.toString()}-${Date.now()}`;
-const sleepBuffer = new SharedArrayBuffer(4);
-const sleepArray = new Int32Array(sleepBuffer);
-
 function sleepBlocking(ms: number): void {
 	if (ms <= 0) return;
 
@@ -27,7 +24,10 @@ function sleepBlocking(ms: number): void {
 		return;
 	}
 
-	Atomics.wait(sleepArray, 0, 0, ms);
+	const end = Date.now() + ms;
+	while (Date.now() < end) {
+		// Busy wait fallback for Node main thread.
+	}
 }
 
 function refreshLock(normalizedPath: string, workDir: string): void {

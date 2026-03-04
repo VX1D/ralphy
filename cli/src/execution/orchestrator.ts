@@ -242,7 +242,7 @@ export async function executeWithOrchestrator(
 
 	// Update display to show test model is running
 	const display = StaticAgentDisplay.getInstance();
-	if (display && options.agentNum) {
+	if (display && options.agentNum !== undefined) {
 		display.setAgentStatus(options.agentNum, "", "working", "testing", testModel || "test");
 	}
 
@@ -264,8 +264,10 @@ export async function executeWithOrchestrator(
 
 	// Check if tests indicate failures that need fixing
 	const hasFailures =
-		/test (fail|error|broken)|failed|failing|✗|❌|assertion|exception/i.test(testOutput) &&
-		!/0 fail|no fail|all pass|✓|✔|passed/i.test(testOutput);
+		/\b\d+\s*(tests?|specs?|assertions?)\s*(failed|failing)\b/i.test(testOutput) ||
+		/\b[1-9]\d*\s+failed\b/i.test(testOutput) ||
+		/\bfailed:\s*[1-9]\d*\b/i.test(testOutput) ||
+		/[✗❌]\s*\d+/i.test(testOutput);
 
 	if (!hasFailures) {
 		// Tests passed or no issues found
