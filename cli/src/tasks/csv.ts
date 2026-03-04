@@ -122,20 +122,6 @@ export class CsvTaskSource implements TaskSource {
 		return tasks;
 	}
 
-	private writeFile(tasks: CsvTask[]): void {
-		const rows: string[][] = [["id", "title", "done", "group", "desc"]];
-		for (const task of tasks) {
-			rows.push([
-				task.id,
-				task.title,
-				task.completed ? "1" : "0",
-				String(task.parallelGroup),
-				task.description,
-			]);
-		}
-		writeFileSync(this.filePath, rowsToCsv(rows), "utf-8");
-	}
-
 	async getAllTasks(): Promise<Task[]> {
 		const tasks = this.readFile();
 		return tasks
@@ -155,11 +141,37 @@ export class CsvTaskSource implements TaskSource {
 	}
 
 	async markComplete(id: string): Promise<void> {
-		const tasks = this.readFile();
-		const task = tasks.find((t) => t.id === id || t.title === id);
-		if (task) {
-			task.completed = true;
-			this.writeFile(tasks);
+		const content = readFileSync(this.filePath, "utf-8");
+		const rows = parseCSV(content);
+		if (rows.length < 2) {
+			return;
+		}
+
+		const header = rows[0].map((cell) => cell.trim().toLowerCase());
+		const idIndex = header.indexOf("id");
+		const titleIndex = header.indexOf("title");
+		const doneIndex = Math.max(header.indexOf("done"), header.indexOf("completed"));
+		const resolvedIdIndex = idIndex >= 0 ? idIndex : 0;
+		const resolvedTitleIndex = titleIndex >= 0 ? titleIndex : 1;
+		const resolvedDoneIndex = doneIndex >= 0 ? doneIndex : 2;
+
+		let updated = false;
+		for (let i = 1; i < rows.length; i++) {
+			const row = rows[i];
+			const rowId = row[resolvedIdIndex] || "";
+			const rowTitle = row[resolvedTitleIndex] || "";
+			if (rowId === id || rowTitle === id) {
+				while (row.length <= resolvedDoneIndex) {
+					row.push("");
+				}
+				row[resolvedDoneIndex] = "1";
+				updated = true;
+				break;
+			}
+		}
+
+		if (updated) {
+			writeFileSync(this.filePath, rowsToCsv(rows), "utf-8");
 		}
 	}
 
