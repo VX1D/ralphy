@@ -262,12 +262,23 @@ export function acquireFileLock(filePath: string, workDir: string, maxRetries = 
 
 export function releaseFileLock(filePath: string, workDir: string): void {
 	const normalizedPath = normalizePathForLocking(filePath, workDir);
+	const inMemory = locks.get(normalizedPath);
+	if (inMemory && inMemory.owner !== lockOwner) {
+		logDebug(`Skipping release of lock not owned by this process: ${normalizedPath}`);
+		return;
+	}
 	locks.delete(normalizedPath);
 
 	// Remove persistent lock file
 	const lockFile = getLockFilePath(normalizedPath, workDir);
 	if (existsSync(lockFile)) {
 		try {
+			const content = readFileSync(lockFile, "utf8");
+			const fileLock = JSON.parse(content) as Partial<LockInfo>;
+			if (fileLock.owner && fileLock.owner !== lockOwner) {
+				logDebug(`Skipping delete of lock file owned by ${fileLock.owner}: ${lockFile}`);
+				return;
+			}
 			unlinkSync(lockFile);
 		} catch (err) {
 			logDebug(`Failed to delete lock file ${lockFile}: ${err}`);
