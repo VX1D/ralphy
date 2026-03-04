@@ -120,6 +120,7 @@ export function validateArgs(args: string[]): string[] | null {
 		/`/, // Backtick substitution
 		/\|\|/, // OR operator
 		/&&/, // AND operator
+		/[<>]/, // Redirection and XML-like payloads
 	];
 
 	for (const arg of args) {

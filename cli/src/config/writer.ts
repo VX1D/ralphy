@@ -52,11 +52,13 @@ boundaries:
  */
 function escapeYaml(value: string | undefined | null): string {
 	if (!value) return "";
-	// Use YAML library for proper escaping instead of simple quote replacement
-	// This prevents YAML injection attacks
-	const serialized = YAML.stringify(value).trim();
-	// Remove surrounding quotes added by YAML.stringify for simple strings
-	return serialized.replace(/^"|"$/g, "");
+	// Keep the value safe inside an existing double-quoted scalar.
+	// This prevents quote breakout and newline-based injection.
+	return value
+		.replace(/\\/g, "\\\\")
+		.replace(/"/g, '\\"')
+		.replace(/\r/g, "\\r")
+		.replace(/\n/g, "\\n");
 }
 
 /**
