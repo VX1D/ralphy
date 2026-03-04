@@ -3,7 +3,8 @@ import type { Task, TaskSource } from "./types.ts";
 
 /**
  * GitHub token patterns for validation
- * Supports classic PATs (ghp_), fine-grained PATs (github_pat_), and OAuth tokens (gho_)
+ * Supports classic PATs (ghp_), fine-grained PATs (github_pat_), OAuth tokens (gho_),
+ * and GitHub App installation tokens (ghs_).
  */
 const GITHUB_TOKEN_PATTERNS = [
 	/^ghp_[A-Za-z0-9]{36}$/, // Classic PAT
@@ -12,16 +13,10 @@ const GITHUB_TOKEN_PATTERNS = [
 	/^ghs_[A-Za-z0-9]{36}$/, // GitHub App installation token
 ];
 
-/**
- * Validate GitHub token format
- */
 function validateGitHubToken(token: string): boolean {
 	return GITHUB_TOKEN_PATTERNS.some((pattern) => pattern.test(token));
 }
 
-/**
- * GitHub Issues task source - reads tasks from GitHub issues
- */
 export class GitHubTaskSource implements TaskSource {
 	type = "github" as const;
 	private octokit: Octokit;
@@ -30,7 +25,6 @@ export class GitHubTaskSource implements TaskSource {
 	private label?: string;
 
 	constructor(repoPath: string, label?: string) {
-		// Parse owner/repo format
 		const parts = repoPath.split("/").filter(Boolean);
 		if (parts.length !== 2) {
 			throw new Error(`Invalid repo format: ${repoPath}. Expected owner/repo`);
@@ -41,9 +35,7 @@ export class GitHubTaskSource implements TaskSource {
 		this.repo = repo;
 		this.label = label;
 
-		// Use GITHUB_TOKEN from environment
 		const token = process.env.GITHUB_TOKEN;
-
 		if (!token) {
 			throw new Error("GITHUB_TOKEN environment variable is not set");
 		}
@@ -54,9 +46,7 @@ export class GitHubTaskSource implements TaskSource {
 			);
 		}
 
-		this.octokit = new Octokit({
-			auth: token,
-		});
+		this.octokit = new Octokit({ auth: token });
 	}
 
 	async getAllTasks(): Promise<Task[]> {
@@ -82,9 +72,7 @@ export class GitHubTaskSource implements TaskSource {
 	}
 
 	async markComplete(id: string): Promise<void> {
-		// Extract issue number from "number:title" format
 		const issueNumber = Number.parseInt(id.split(":")[0], 10);
-
 		if (Number.isNaN(issueNumber)) {
 			throw new Error(`Invalid issue ID: ${id}`);
 		}
@@ -121,12 +109,8 @@ export class GitHubTaskSource implements TaskSource {
 		return issues.length;
 	}
 
-	/**
-	 * Get full issue body for a task
-	 */
 	async getIssueBody(id: string): Promise<string> {
 		const issueNumber = Number.parseInt(id.split(":")[0], 10);
-
 		if (Number.isNaN(issueNumber)) {
 			return "";
 		}

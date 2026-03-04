@@ -22,19 +22,21 @@ process.on("unhandledRejection", (reason, promise) => {
 	// Don't crash, but log and continue - prevent uncaught exception
 });
 
-// Handle uncaught exceptions globally
-process.on("uncaughtException", async (error) => {
+	// Handle uncaught exceptions globally
+process.on("uncaughtException", (error) => {
 	logError(`Uncaught Exception: ${error.message}`);
 	logError(`Stack: ${error.stack}`);
-	// Perform cleanup before exiting
-	try {
-		await runCleanup();
-	} catch (cleanupError) {
-		logError(
-			`Cleanup failed during uncaught exception: ${cleanupError instanceof Error ? cleanupError.message : cleanupError}`,
-		);
-	}
-	process.exit(1);
+	runCleanup()
+		.catch((cleanupError: unknown) => {
+			logError(
+				`Cleanup failed during uncaught exception: ${cleanupError instanceof Error ? cleanupError.message : cleanupError}`,
+			);
+		})
+		.finally(() => {
+			// Set exit code instead of calling exit immediately
+			// This allows the cleanup promise to resolve before Node.js exits
+			process.exitCode = 1;
+		});
 });
 
 async function main(): Promise<void> {
@@ -51,7 +53,7 @@ async function main(): Promise<void> {
 
 		// Handle --convert-from
 		if (convertFrom) {
-			const outputFile = convertTo || convertFrom.replace(/\.(yaml|yml|md|json)$/i, ".csv");
+			const outputFile = convertTo || `${convertFrom.replace(/\.[^.]+$/, "")}.csv`;
 			await runConvert({ from: convertFrom, to: outputFile, verbose: options.verbose });
 			return;
 		}

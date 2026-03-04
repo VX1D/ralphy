@@ -48,8 +48,7 @@ export async function runConvert(options: {
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		logError(`Error parsing ${from}: ${message}`);
-		throw err;
+		throw new Error(`Error parsing ${from}: ${message}`);
 	}
 
 	// Count tasks
