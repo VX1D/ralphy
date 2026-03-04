@@ -40,7 +40,7 @@ export interface TransformResult {
 /**
  * Transformer function type
  */
-export type Transformer = (input: string, context: TransformContext) => string;
+export type Transformer = (input: string, context: TransformContext) => string | Promise<string>;
 
 /**
  * Transformer registration
@@ -73,11 +73,14 @@ export class TransformPipeline {
 		// Sort by priority (lower first)
 		this.transformers.sort((a, b) => a.priority - b.priority);
 
-		logDebugContext("TransformPipeline", `Registered transformer: ${name} (priority: ${entry.priority})`);
+		logDebugContext(
+			"TransformPipeline",
+			`Registered transformer: ${name} (priority: ${entry.priority})`,
+		);
 
 		// Return unregister function
 		return () => {
-			const index = this.transformers.findIndex((t) => t.name === name);
+			const index = this.transformers.indexOf(entry);
 			if (index !== -1) {
 				this.transformers.splice(index, 1);
 				logDebugContext("TransformPipeline", `Unregistered transformer: ${name}`);
@@ -90,7 +93,7 @@ export class TransformPipeline {
 	 */
 	async execute(input: string, context: TransformContext): Promise<TransformResult> {
 		// Lazy-register built-in transformers to avoid circular dependency
-		registerBuiltInTransformers();
+		registerBuiltInTransformers(this);
 
 		if (!this.enabled || this.transformers.length === 0) {
 			return {
@@ -120,7 +123,10 @@ export class TransformPipeline {
 
 		const processingTimeMs = Date.now() - startTime;
 
-		logDebugContext("TransformPipeline", `Applied ${appliedTransformers.length} transformers in ${processingTimeMs}ms`);
+		logDebugContext(
+			"TransformPipeline",
+			`Applied ${appliedTransformers.length} transformers in ${processingTimeMs}ms`,
+		);
 
 		return {
 			data: result,
@@ -190,7 +196,10 @@ export function registerTransformer(
 /**
  * Execute transformation pipeline (convenience function)
  */
-export async function transform(input: string, context: TransformContext): Promise<TransformResult> {
+export async function transform(
+	input: string,
+	context: TransformContext,
+): Promise<TransformResult> {
 	return globalTransformPipeline.execute(input, context);
 }
 
@@ -201,6 +210,19 @@ export async function transform(input: string, context: TransformContext): Promi
  */
 const MAX_SANITIZE_INPUT_LENGTH = 1000000; // 1MB
 
+function truncateToMaxBytes(input: string, maxBytes: number): string {
+	if (Buffer.byteLength(input, "utf8") <= maxBytes) {
+		return input;
+	}
+
+	let end = Math.min(input.length, maxBytes);
+	while (end > 0 && Buffer.byteLength(input.slice(0, end), "utf8") > maxBytes) {
+		end--;
+	}
+
+	return input.slice(0, end);
+}
+
 /**
  * Sanitize sensitive data (API keys, passwords, etc.)
  *
@@ -210,17 +232,11 @@ const MAX_SANITIZE_INPUT_LENGTH = 1000000; // 1MB
  * - Patterns are applied sequentially with early exit if input becomes too large
  */
 export const sanitizeSecretsTransformer: Transformer = (input) => {
-	// Limit input length to prevent ReDoS attacks
-	if (input.length > MAX_SANITIZE_INPUT_LENGTH) {
-		// For very large inputs, truncate and add warning
-		const truncated = input.slice(0, MAX_SANITIZE_INPUT_LENGTH);
-		return `${truncated}\n\n[WARNING: Content truncated due to size limits during secret sanitization]`;
-	}
-
 	// All patterns use bounded quantifiers to prevent ReDoS
 	// Patterns are designed to match specific token formats with fixed lengths
 	const patterns = [
 		{ regex: /sk-[a-zA-Z0-9]{48}/g, replacement: "[API_KEY_REDACTED]" },
+		{ regex: /sk-ant-[a-zA-Z0-9_-]{16,256}/g, replacement: "[ANTHROPIC_KEY_REDACTED]" },
 		{ regex: /ghp_[a-zA-Z0-9]{36}/g, replacement: "[GITHUB_TOKEN_REDACTED]" },
 		{ regex: /gho_[a-zA-Z0-9]{52}/g, replacement: "[GITHUB_OAUTH_REDACTED]" },
 		{ regex: /AKIA[0-9A-Z]{16}/g, replacement: "[AWS_KEY_REDACTED]" },
@@ -229,9 +245,16 @@ export const sanitizeSecretsTransformer: Transformer = (input) => {
 		{ regex: /\b[0-9a-f]{64}\b/g, replacement: "[HEX_SECRET_REDACTED]" },
 	];
 
-	let result = input;
+	const exceedsMaxBytes = Buffer.byteLength(input, "utf8") > MAX_SANITIZE_INPUT_LENGTH;
+	const source = exceedsMaxBytes ? truncateToMaxBytes(input, MAX_SANITIZE_INPUT_LENGTH) : input;
+
+	let result = source;
 	for (const { regex, replacement } of patterns) {
 		result = result.replace(regex, replacement);
+	}
+
+	if (exceedsMaxBytes) {
+		return `${result}\n\n[WARNING: Content truncated due to size limits during secret sanitization]`;
 	}
 
 	return result;
@@ -259,8 +282,9 @@ export const truncateContentTransformer: Transformer = (input, context) => {
  */
 export const addMetadataHeaderTransformer: Transformer = (input, context) => {
 	const timestamp = new Date().toISOString();
+	const safeTaskTitle = context.task.title.replace(/-->/g, "--\\>");
 	const header = `<!--
-Task: ${context.task.title}
+Task: ${safeTaskTitle}
 Engine: ${context.engine}
 Timestamp: ${timestamp}
 -->
@@ -291,10 +315,17 @@ export const formatCodeBlocksTransformer: Transformer = (input) => {
 	return input.replace(/```\n([\s\S]*?)```/g, (match, code) => {
 		// Try to detect language from content
 		let language = "";
-		if (code.includes("import ") || code.includes("export ")) language = "typescript";
-		else if (code.includes("function ") || code.includes("const ") || code.includes("let ")) language = "typescript";
-		else if (code.includes("def ") || code.includes("import ")) language = "python";
-		else if (code.includes("package ") || code.includes("import java.")) language = "java";
+		if (
+			code.includes("export ") ||
+			code.includes("interface ") ||
+			code.includes("type ") ||
+			code.includes("function ") ||
+			code.includes("const ") ||
+			code.includes("let ")
+		)
+			language = "typescript";
+		else if (code.includes("import java.") || code.includes("package ")) language = "java";
+		else if (code.includes("def ") || code.includes("from ")) language = "python";
 
 		if (language) {
 			return `\`\`\`${language}\n${code}\`\`\``;
@@ -324,7 +355,8 @@ export const enforceTokenLimitTransformer: Transformer = (input, context) => {
 
 	const maxChars = maxTokens * 4;
 	const truncationPoint = input.lastIndexOf("\n\n", maxChars * 0.9);
-	const breakPoint = truncationPoint > maxChars * 0.7 ? truncationPoint : Math.floor(maxChars * 0.9);
+	const breakPoint =
+		truncationPoint > maxChars * 0.7 ? truncationPoint : Math.floor(maxChars * 0.9);
 
 	return `${input.substring(0, breakPoint)}\n\n[Token limit reached: ~${Math.floor(estimatedTokens)} tokens estimated, ${input.length - breakPoint} characters omitted]`;
 };
@@ -348,7 +380,11 @@ export const addTaskContextTransformer: Transformer = (input, context) => {
 const BUILT_IN_TRANSFORMERS = [
 	{ name: "sanitize-secrets", transformer: sanitizeSecretsTransformer, priority: -100 },
 	{ name: "normalize-line-endings", transformer: normalizeLineEndingsTransformer, priority: -50 },
-	{ name: "remove-excessive-whitespace", transformer: removeExcessiveWhitespaceTransformer, priority: -40 },
+	{
+		name: "remove-excessive-whitespace",
+		transformer: removeExcessiveWhitespaceTransformer,
+		priority: -40,
+	},
 	{ name: "format-code-blocks", transformer: formatCodeBlocksTransformer, priority: -30 },
 	{ name: "add-metadata-header", transformer: addMetadataHeaderTransformer, priority: 0 },
 	{ name: "add-task-context", transformer: addTaskContextTransformer, priority: 10 },
@@ -357,12 +393,12 @@ const BUILT_IN_TRANSFORMERS = [
 ];
 
 // Register built-in transformers lazily to avoid circular dependency issues
-let transformersRegistered = false;
-function registerBuiltInTransformers(): void {
-	if (transformersRegistered) return;
-	transformersRegistered = true;
+const pipelinesWithBuiltIns = new WeakSet<TransformPipeline>();
+function registerBuiltInTransformers(pipeline: TransformPipeline): void {
+	if (pipelinesWithBuiltIns.has(pipeline)) return;
+	pipelinesWithBuiltIns.add(pipeline);
 	for (const { name, transformer, priority } of BUILT_IN_TRANSFORMERS) {
-		globalTransformPipeline.register(name, transformer, { priority });
+		pipeline.register(name, transformer, { priority });
 	}
 }
 

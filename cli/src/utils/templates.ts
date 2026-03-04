@@ -10,6 +10,22 @@
 
 import { logDebugContext, logErrorContext } from "../ui/logger.ts";
 
+const MAX_TEMPLATE_PATTERN_LENGTH = 200;
+const MAX_TEMPLATE_VALUE_LENGTH = 2000;
+
+function isUnsafeTemplateRegex(pattern: string): boolean {
+	// Reject advanced features and nested quantifier forms that are common ReDoS vectors.
+	if (/\\\d/.test(pattern)) return true;
+	if (/\(\?(?:[:=!<])/.test(pattern)) return true;
+	if (/\((?:[^()\\]|\\.)*[+*][^)]*\)[+*{]/.test(pattern)) return true;
+	if (/\([^)]*\|[^)]*\)[+*{]/.test(pattern)) return true;
+	return false;
+}
+
+function hasOwnContextValue(context: TemplateContext, key: string): boolean {
+	return Object.prototype.hasOwnProperty.call(context, key);
+}
+
 /**
  * Template variable definition
  */
@@ -147,7 +163,9 @@ export class TemplateEngine {
 		const renderedSections: string[] = [];
 
 		// Sort sections by priority
-		const sortedSections = [...effectiveTemplate.sections].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+		const sortedSections = [...effectiveTemplate.sections].sort(
+			(a, b) => (a.priority ?? 0) - (b.priority ?? 0),
+		);
 
 		for (const section of sortedSections) {
 			// Check condition
@@ -242,7 +260,10 @@ export class TemplateEngine {
 			const varRefs = this.extractVariableReferences(section.content);
 			for (const ref of varRefs) {
 				if (!varNames.has(ref)) {
-					logErrorContext("TemplateEngine", `Template ${template.name} references undefined variable: ${ref}`);
+					logErrorContext(
+						"TemplateEngine",
+						`Template ${template.name} references undefined variable: ${ref}`,
+					);
 				}
 			}
 		}
@@ -250,15 +271,33 @@ export class TemplateEngine {
 
 	private validateContext(template: PromptTemplate, context: TemplateContext): void {
 		for (const variable of template.variables) {
-			if (variable.required && !(variable.name in context)) {
-				throw new Error(`Missing required variable '${variable.name}' for template '${template.name}'`);
+			if (variable.required && !hasOwnContextValue(context, variable.name)) {
+				throw new Error(
+					`Missing required variable '${variable.name}' for template '${template.name}'`,
+				);
 			}
 
-			if (variable.pattern && context[variable.name]) {
+			if (variable.pattern && hasOwnContextValue(context, variable.name)) {
 				const value = String(context[variable.name]);
-				const regex = new RegExp(variable.pattern);
+				if (variable.pattern.length > MAX_TEMPLATE_PATTERN_LENGTH) {
+					throw new Error(`Variable '${variable.name}' pattern is too long`);
+				}
+				if (isUnsafeTemplateRegex(variable.pattern)) {
+					throw new Error(`Variable '${variable.name}' pattern uses unsafe regex constructs`);
+				}
+				if (value.length > MAX_TEMPLATE_VALUE_LENGTH) {
+					throw new Error(`Variable '${variable.name}' value is too long for regex validation`);
+				}
+				let regex: RegExp;
+				try {
+					regex = new RegExp(variable.pattern);
+				} catch {
+					throw new Error(`Variable '${variable.name}' has invalid pattern '${variable.pattern}'`);
+				}
 				if (!regex.test(value)) {
-					throw new Error(`Variable '${variable.name}' value '${value}' does not match pattern '${variable.pattern}'`);
+					throw new Error(
+						`Variable '${variable.name}' value '${value}' does not match pattern '${variable.pattern}'`,
+					);
 				}
 			}
 		}
@@ -309,7 +348,7 @@ export class TemplateEngine {
 
 	private renderVariables(content: string, context: TemplateContext): string {
 		return content.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
-			if (varName in context) {
+			if (hasOwnContextValue(context, varName)) {
 				const value = context[varName];
 				if (Array.isArray(value)) {
 					return value.join("\n");
@@ -328,25 +367,31 @@ export class TemplateEngine {
 		// Negation
 		if (normalizedCondition.startsWith("!")) {
 			const varName = normalizedCondition.slice(1);
-			return !context[varName];
-		}
-
-		// Equality check
-		const eqMatch = normalizedCondition.match(/^(\w+)=(.+)$/);
-		if (eqMatch) {
-			const [, varName, expectedValue] = eqMatch;
-			return String(context[varName]) === expectedValue;
+			return hasOwnContextValue(context, varName) ? !context[varName] : true;
 		}
 
 		// Inequality check
 		const neqMatch = normalizedCondition.match(/^(\w+)!=(.+)$/);
 		if (neqMatch) {
 			const [, varName, expectedValue] = neqMatch;
+			if (!hasOwnContextValue(context, varName)) {
+				return true;
+			}
 			return String(context[varName]) !== expectedValue;
 		}
 
+		// Equality check
+		const eqMatch = normalizedCondition.match(/^(\w+)=(.+)$/);
+		if (eqMatch) {
+			const [, varName, expectedValue] = eqMatch;
+			if (!hasOwnContextValue(context, varName)) {
+				return false;
+			}
+			return String(context[varName]) === expectedValue;
+		}
+
 		// Simple truthy check
-		return !!context[normalizedCondition];
+		return hasOwnContextValue(context, normalizedCondition) && !!context[normalizedCondition];
 	}
 
 	private applyOutputFormat(content: string, format?: string): string {
@@ -424,7 +469,8 @@ export const builtInTemplates: PromptTemplate[] = [
 			},
 			{
 				name: "instructions",
-				content: "\n## Instructions\n\nPlease complete the above task following all specified rules.",
+				content:
+					"\n## Instructions\n\nPlease complete the above task following all specified rules.",
 				priority: 100,
 			},
 		],

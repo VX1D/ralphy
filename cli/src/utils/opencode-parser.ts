@@ -97,11 +97,17 @@ export const TextPartSchema = z.object({
 
 export const TextEventSchema = z.object({
 	type: z.literal("text"),
+	sessionID: z.string().optional(),
+	sessionId: z.string().optional(),
+	session_id: z.string().optional(),
 	part: TextPartSchema,
 });
 
 export const ErrorEventSchema = z.object({
 	type: z.literal("error"),
+	sessionID: z.string().optional(),
+	sessionId: z.string().optional(),
+	session_id: z.string().optional(),
 	error: z
 		.object({
 			message: z.string(),
@@ -132,10 +138,28 @@ export type OpenCodeEvent = z.infer<typeof OpenCodeEventSchema>;
 // Extended Type Definitions
 // =============================================================================
 
-export type EventType = "tool_use" | "step_start" | "step_finish" | "text" | "error" | "plan" | "thinking" | "unknown";
+export type EventType =
+	| "tool_use"
+	| "step_start"
+	| "step_finish"
+	| "text"
+	| "error"
+	| "plan"
+	| "thinking"
+	| "unknown";
 
 // Tool types supported by OpenCode/Kimi
-export type ToolType = "read" | "write" | "edit" | "glob" | "grep" | "bash" | "list" | "search" | "analyze" | string;
+export type ToolType =
+	| "read"
+	| "write"
+	| "edit"
+	| "glob"
+	| "grep"
+	| "bash"
+	| "list"
+	| "search"
+	| "analyze"
+	| string;
 
 // Tool status types
 export type ToolStatus = "completed" | "failed" | "in_progress" | "pending";
@@ -378,13 +402,15 @@ export function parseOpenCodeLine(line: string, lineNumber?: number): ParsedEven
 			};
 		}
 
-		// If Zod validation fails but we have a valid type, still return it
+		// If Zod validation fails but we have a known type, keep the parsed object
+		// for diagnostics while marking the line as invalid.
 		if (eventType !== "unknown") {
 			return {
 				raw: line,
 				event: obj as OpenCodeEvent,
 				eventType,
-				isValid: true,
+				isValid: false,
+				parseError: parseResult.error?.message,
 				lineNumber,
 			};
 		}
@@ -484,7 +510,9 @@ export function filterEvents(events: ParsedEvent[], options: FilterOptions): Par
 			const filterPath = options.filePath;
 			if (filterPath) {
 				const input = toolEvent.part.state.input || {};
-				const filePaths = [input.filePath, input.file_path, input.path, input.pattern].filter(Boolean);
+				const filePaths = [input.filePath, input.file_path, input.path, input.pattern].filter(
+					Boolean,
+				);
 
 				if (!filePaths.some((fp) => fp?.includes(filterPath))) {
 					return false;
@@ -525,7 +553,7 @@ export function filterEvents(events: ParsedEvent[], options: FilterOptions): Par
 /**
  * Truncate a file path for display
  */
-function truncatePath(path: string, maxLength: number = 40): string {
+function truncatePath(path: string, maxLength = 40): string {
 	if (path.length <= maxLength) return path;
 	const parts = path.split(/[/\\]/);
 	if (parts.length <= 2) return `...${path.slice(-maxLength + 3)}`;
@@ -535,7 +563,7 @@ function truncatePath(path: string, maxLength: number = 40): string {
 /**
  * Truncate a command for display
  */
-function truncateCommand(command: string, maxLength: number = 50): string {
+function truncateCommand(command: string, maxLength = 50): string {
 	if (command.length <= maxLength) return command;
 	return `${command.slice(0, maxLength - 3)}...`;
 }

@@ -56,8 +56,6 @@ export function validateCommand(command: string): string | null {
 		/\$\{/, // Variable expansion
 		/\$\(/, // Command substitution
 		/`/, // Backtick substitution
-		/\|\|/, // OR operator
-		/&&/, // AND operator
 		/[<>]/, // Redirection
 	];
 
@@ -118,8 +116,6 @@ export function validateArgs(args: string[]): string[] | null {
 		/\$\{/, // Variable expansion
 		/\$\(/, // Command substitution
 		/`/, // Backtick substitution
-		/\|\|/, // OR operator
-		/&&/, // AND operator
 		/[<>]/, // Redirection and XML-like payloads
 	];
 

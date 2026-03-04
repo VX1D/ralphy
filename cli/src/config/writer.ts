@@ -135,10 +135,3 @@ export function logTaskProgress(
 
 	appendFileSync(progressPath, line, "utf-8");
 }
-
-/**
- * @deprecated Writes are synchronous; kept for API compatibility.
- */
-export async function flushAllProgressWrites(): Promise<void> {
-	return Promise.resolve();
-}
