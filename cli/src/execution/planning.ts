@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join, normalize } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { DEFAULT_MAX_REPLANS, PLANNING_CACHE_FILE } from "../config/constants.ts";
 import { RALPHY_DIR } from "../config/loader.ts";
@@ -185,6 +185,11 @@ export function normalizePlannedPath(filePath: string): string {
 
 	// Normalize path separators
 	processed = normalize(processed);
+
+	if (!processed || isAbsolute(processed) || processed.startsWith("..")) {
+		return "";
+	}
+
 	return processed;
 }
 
@@ -199,7 +204,10 @@ export function parsePlannedFiles(response: string): string[] {
 		for (const line of lines) {
 			const trimmed = line.trim();
 			if (trimmed && !trimmed.startsWith("#") && !trimmed.startsWith("<")) {
-				files.add(normalizePlannedPath(trimmed));
+				const normalizedPath = normalizePlannedPath(trimmed);
+				if (normalizedPath) {
+					files.add(normalizedPath);
+				}
 			}
 		}
 	} else {
@@ -220,7 +228,10 @@ export function parsePlannedFiles(response: string): string[] {
 					trimmed.startsWith("../") ||
 					/^[a-zA-Z0-9_\-.]+\/[a-zA-Z0-9_\-./]+/.test(trimmed))
 			) {
-				files.add(normalizePlannedPath(trimmed));
+				const normalizedPath = normalizePlannedPath(trimmed);
+				if (normalizedPath) {
+					files.add(normalizedPath);
+				}
 			}
 		}
 	}

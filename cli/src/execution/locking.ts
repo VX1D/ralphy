@@ -16,6 +16,19 @@ interface LockInfo {
 // Unified lock structure for better performance
 const locks = new Map<string, LockInfo>();
 const lockOwner = `${process.pid.toString()}-${Date.now()}`;
+const sleepBuffer = new SharedArrayBuffer(4);
+const sleepArray = new Int32Array(sleepBuffer);
+
+function sleepBlocking(ms: number): void {
+	if (ms <= 0) return;
+
+	if (typeof Bun !== "undefined" && Bun.sleepSync) {
+		Bun.sleepSync(ms);
+		return;
+	}
+
+	Atomics.wait(sleepArray, 0, 0, ms);
+}
 
 function refreshLock(normalizedPath: string, workDir: string): void {
 	const lockInfo = locks.get(normalizedPath);
@@ -239,19 +252,7 @@ export function acquireFileLock(filePath: string, workDir: string, maxRetries = 
 				const delay = Math.min(baseDelay + jitter, 5000); // Max 5 seconds
 
 				logDebug(`Lock acquisition attempt ${attempt}/${maxRetries} failed, retrying in ${Math.round(delay)}ms`);
-				// Use setTimeout with blocking pattern (Atomics.wait for Bun/Node compatibility)
-				// This yields to the event loop instead of busy-waiting
-				if (typeof Bun !== "undefined" && Bun.sleepSync) {
-					Bun.sleepSync(delay);
-				} else {
-					// For Node.js, use a lighter busy-wait with occasional yielding
-					const start = Date.now();
-					while (Date.now() - start < delay) {
-						// Minimal work to allow event loop processing
-						if (Date.now() % 10 === 0) {
-						}
-					}
-				}
+				sleepBlocking(delay);
 			}
 		}
 	}

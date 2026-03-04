@@ -178,8 +178,8 @@ describe("Lock Management Security and Reliability Tests", () => {
 			expect(success).toBe(true);
 
 			// Lock file should exist
-			const lockDir = join(TEST_BASE, ".ralphy-locks");
-			const lockFiles = [];
+			const lockDir = join(TEST_BASE, LOCK_DIR);
+			const lockFiles: string[] = [];
 			try {
 				if (existsSync(lockDir)) {
 					lockFiles.push(...readdirSync(lockDir));
@@ -198,7 +198,7 @@ describe("Lock Management Security and Reliability Tests", () => {
 			writeFileSync(testFile, "test content");
 
 			// Create corrupted lock file
-			const lockDir = join(TEST_BASE, ".ralphy-locks");
+			const lockDir = join(TEST_BASE, LOCK_DIR);
 			mkdirSync(lockDir, { recursive: true });
 			const lockFile = join(lockDir, "corrupt.lock");
 			writeFileSync(lockFile, "invalid json content");

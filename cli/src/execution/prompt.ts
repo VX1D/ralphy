@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { loadBoundaries, loadProjectContext, loadRules } from "../config/loader.ts";
@@ -233,7 +233,7 @@ function detectSymlinks(workDir: string): string[] {
 	return dirents
 		.filter((d) => {
 			try {
-				return statSync(join(workDir, d.name as string)).isSymbolicLink();
+				return lstatSync(join(workDir, d.name as string)).isSymbolicLink();
 			} catch {
 				return false;
 			}

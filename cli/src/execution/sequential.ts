@@ -1,15 +1,16 @@
 import { logTaskProgress } from "../config/writer.ts";
 import type { AIEngine, AIResult } from "../engines/types.ts";
 import { createTaskBranch, returnToBaseBranch } from "../git/branch.ts";
+import { syncPrdToIssue } from "../git/issue-sync.ts";
 import { createPullRequest } from "../git/pr.ts";
-import type { TaskSource } from "../tasks/types.ts";
+import type { Task, TaskSource } from "../tasks/types.ts";
 import { logDebug, logError, logInfo, logSuccess, logWarn } from "../ui/logger.ts";
 import { notifyTaskComplete, notifyTaskFailed } from "../ui/notify.ts";
 import { ProgressSpinner } from "../ui/spinner.ts";
 import { standardizeError } from "../utils/errors.ts";
 import { clearDeferredTask, recordDeferredTask } from "./deferred.ts";
 import { buildPrompt } from "./prompt.ts";
-import { isRetryableError, withRetry } from "./retry.ts";
+import { isFatalError, isRetryableError, withRetry } from "./retry.ts";
 import { type StateFormat, TaskState, TaskStateManager, detectStateFormat } from "./task-state.ts";
 
 export interface ExecutionOptions {
@@ -124,6 +125,11 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 
 	let iteration = 0;
 	let abortDueToRetryableFailure = false;
+	let taskIndex = new Map<string, Task>();
+
+	for (const task of await taskSource.getAllTasks()) {
+		taskIndex.set(task.id, task);
+	}
 	// BUG FIX: Safety counter to prevent infinite loops
 	let safetyCounter = 0;
 	const MAX_SAFETY_ITERATIONS = 10000;
@@ -147,8 +153,13 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 		}
 
 		// Find the full task in the source
-		const allTasks = await taskSource.getAllTasks();
-		const task = allTasks.find((t) => t.id === pendingTask.id);
+		let task = taskIndex.get(pendingTask.id);
+		if (!task) {
+			for (const refreshedTask of await taskSource.getAllTasks()) {
+				taskIndex.set(refreshedTask.id, refreshedTask);
+			}
+			task = taskIndex.get(pendingTask.id);
+		}
 		if (!task) {
 			logError(`Task ${pendingTask.id} not found in source`);
 			await taskStateManager.transitionState(pendingTask.id, TaskState.SKIPPED);
@@ -285,6 +296,10 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 							logSuccess(`PR created: ${prUrl}`);
 						}
 					}
+
+					if (options.syncIssue && options.prdFile) {
+						await syncPrdToIssue(options.prdFile, options.syncIssue, workDir);
+					}
 				} else {
 					const errMsg = aiResult.error || "Unknown error";
 					if (isRetryableError(errMsg)) {
@@ -304,6 +319,20 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 							result.tasksFailed++;
 							abortDueToRetryableFailure = true;
 						}
+					} else if (isFatalError(errMsg)) {
+						spinner.error(errMsg);
+						await taskStateManager.transitionState(task.id, TaskState.FAILED, errMsg);
+						logTaskProgress(task.title, "failed", workDir);
+						result.tasksFailed++;
+						notifyTaskFailed(task.title, errMsg);
+						await taskSource.markComplete(task.id);
+						clearDeferredTask(taskSource.type, task, workDir, options.prdFile);
+						logError(`Fatal error: ${errMsg}`);
+						logError("Aborting remaining tasks due to configuration/authentication issue.");
+						if (branchPerTask && baseBranch) {
+							await returnToBaseBranch(baseBranch, workDir);
+						}
+						return result;
 					} else {
 						spinner.error(errMsg);
 						await taskStateManager.transitionState(task.id, TaskState.FAILED, errMsg);
@@ -333,6 +362,20 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 						result.tasksFailed++;
 						abortDueToRetryableFailure = true;
 					}
+				} else if (isFatalError(errorMsg)) {
+					spinner.error(errorMsg);
+					await taskStateManager.transitionState(task.id, TaskState.FAILED, errorMsg);
+					logTaskProgress(task.title, "failed", workDir);
+					result.tasksFailed++;
+					notifyTaskFailed(task.title, errorMsg);
+					await taskSource.markComplete(task.id);
+					clearDeferredTask(taskSource.type, task, workDir, options.prdFile);
+					logError(`Fatal error: ${errorMsg}`);
+					logError("Aborting remaining tasks due to configuration/authentication issue.");
+					if (branchPerTask && baseBranch) {
+						await returnToBaseBranch(baseBranch, workDir);
+					}
+					return result;
 				} else {
 					spinner.error(errorMsg);
 					await taskStateManager.transitionState(task.id, TaskState.FAILED, errorMsg);

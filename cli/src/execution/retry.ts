@@ -7,6 +7,10 @@ interface RetryOptions {
 	onRetry?: (attempt: number, error: string, delayMs: number) => void;
 	/** Enable exponential backoff for connection errors */
 	exponentialBackoff?: boolean;
+	/** Maximum delay in seconds (default: 60) */
+	maxDelay?: number;
+	/** Add random jitter to delay (default: true) */
+	jitter?: boolean;
 	/** Optional task ID for tracking connection state */
 	taskId?: string;
 }
@@ -213,9 +217,17 @@ function calculateDelay(
 	attempt: number,
 	error: Error,
 	exponentialBackoff: boolean,
+	maxDelaySeconds: number,
+	useJitter: boolean,
 ): number {
+	const maxDelayMs = maxDelaySeconds * 1000;
+	const baseDelayMs = baseDelaySeconds * 1000;
+
 	if (!exponentialBackoff) {
-		return baseDelaySeconds * 1000;
+		const delay = Math.min(baseDelayMs, maxDelayMs);
+		if (!useJitter) return delay;
+		const jitter = Math.floor(delay * 0.25 * Math.random());
+		return Math.min(delay + jitter, maxDelayMs);
 	}
 
 	// Check if this is a connection/network error
@@ -227,19 +239,34 @@ function calculateDelay(
 
 	if (isConnectionError) {
 		// Exponential backoff: 2s, 4s, 8s, max 30s
-		const delayMs = Math.min(2000 * 2 ** (attempt - 1), 30000);
+		let delayMs = Math.min(2000 * 2 ** (attempt - 1), maxDelayMs);
+		if (useJitter) {
+			delayMs = Math.min(delayMs + Math.floor(delayMs * 0.25 * Math.random()), maxDelayMs);
+		}
 		logDebug(`Connection error detected, using exponential backoff: ${delayMs}ms`);
 		return delayMs;
 	}
 
-	return baseDelaySeconds * 1000;
+	let delay = Math.min(baseDelayMs, maxDelayMs);
+	if (useJitter) {
+		delay = Math.min(delay + Math.floor(delay * 0.25 * Math.random()), maxDelayMs);
+	}
+	return delay;
 }
 
 /**
  * Execute a function with retry logic and circuit breaker
  */
 export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions): Promise<T> {
-	const { maxRetries, retryDelay, onRetry, exponentialBackoff = true, taskId } = options;
+	const {
+		maxRetries,
+		retryDelay,
+		onRetry,
+		exponentialBackoff = true,
+		maxDelay = 60,
+		jitter = true,
+		taskId,
+	} = options;
 	let lastError: Error | null = null;
 
 	// Check circuit breaker before attempting
@@ -277,7 +304,14 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions):
 					}
 				}
 
-				const delayMs = calculateDelay(retryDelay, attempt, lastError, exponentialBackoff);
+				const delayMs = calculateDelay(
+					retryDelay,
+					attempt,
+					lastError,
+					exponentialBackoff,
+					maxDelay,
+					jitter,
+				);
 
 				logWarn(
 					`Attempt ${attempt}/${maxRetries} failed: ${errorMsg}. Retrying in ${delayMs}ms...`,
@@ -384,3 +418,24 @@ export async function waitForConnectionRestore(timeoutMs = 300000): Promise<bool
  * Re-export isRetryableError from utils/errors.ts for backward compatibility
  */
 export { isRetryableError } from "../utils/errors.ts";
+
+/**
+ * Check if an error is fatal and should abort all remaining tasks.
+ */
+export function isFatalError(error: string): boolean {
+	const fatalPatterns = [
+		/not authenticated/i,
+		/no authentication/i,
+		/authentication failed/i,
+		/invalid.*token/i,
+		/invalid.*api.?key/i,
+		/unauthorized/i,
+		/\b401\b/i,
+		/\b403\b/i,
+		/command not found/i,
+		/not installed/i,
+		/is not recognized/i,
+	];
+
+	return fatalPatterns.some((pattern) => pattern.test(error));
+}
