@@ -79,6 +79,14 @@ export class CopilotEngine extends BaseAIEngine {
 		}
 	}
 
+	private getAuthenticationError(output: string): string | null {
+		const firstLine = output.split("\n")[0]?.trim().toLowerCase() || "";
+		if (firstLine.startsWith("not authenticated") || firstLine.startsWith("no authentication")) {
+			return "GitHub Copilot is not authenticated. Please run `gh auth login` or check your Copilot subscription.";
+		}
+		return null;
+	}
+
 	/**
 	 * Cleanup temp files older than 1 hour to prevent disk space exhaustion
 	 */
@@ -116,15 +124,14 @@ export class CopilotEngine extends BaseAIEngine {
 			const output = stdout + stderr;
 
 			// Check for authentication errors first (check first line only)
-			const firstLine = output.split("\n")[0]?.trim().toLowerCase() || "";
-			if (firstLine.startsWith("not authenticated") || firstLine.startsWith("no authentication")) {
+			const authError = this.getAuthenticationError(output);
+			if (authError) {
 				return {
 					success: false,
 					response: "",
 					inputTokens: 0,
 					outputTokens: 0,
-					error:
-						"GitHub Copilot is not authenticated. Please run `gh auth login` or check your Copilot subscription.",
+					error: authError,
 				};
 			}
 
@@ -241,6 +248,17 @@ export class CopilotEngine extends BaseAIEngine {
 			const durationMs = Date.now() - startTime;
 			const output = outputLines.join("\n");
 
+			const authError = this.getAuthenticationError(output);
+			if (authError) {
+				return {
+					success: false,
+					response: "",
+					inputTokens: 0,
+					outputTokens: 0,
+					error: authError,
+				};
+			}
+
 			// Check for errors
 			const error = checkForErrors(output);
 			if (error) {
@@ -292,15 +310,14 @@ export class CopilotEngine extends BaseAIEngine {
 		const tokenCounts = this.parseTokenCounts(output);
 
 		// Check for auth errors first (check first line only)
-		const firstLine = output.split("\n")[0]?.trim().toLowerCase() || "";
-		if (firstLine.startsWith("not authenticated") || firstLine.startsWith("no authentication")) {
+		const authError = this.getAuthenticationError(output);
+		if (authError) {
 			return {
 				success: false,
 				response,
 				inputTokens: tokenCounts.input,
 				outputTokens: tokenCounts.output,
-				error:
-					"GitHub Copilot is not authenticated. Please run `gh auth login` or check your Copilot subscription.",
+				error: authError,
 			};
 		}
 

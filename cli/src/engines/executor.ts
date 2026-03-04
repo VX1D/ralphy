@@ -210,9 +210,11 @@ function execWithNode(
 
 		proc.on("error", (err) => {
 			unregister();
+			const errorMessage = err.message || String(err);
+			const mergedStderr = stderr ? `${stderr}\n${errorMessage}` : errorMessage;
 			resolve({
 				stdout,
-				stderr: err.message,
+				stderr: mergedStderr,
 				exitCode: 1,
 			});
 		});
