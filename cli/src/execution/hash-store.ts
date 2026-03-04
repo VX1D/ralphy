@@ -30,6 +30,17 @@ import { logDebug, logError, logWarn } from "../ui/logger.js";
 
 const COMPRESSION_TIMEOUT_MS = 30000; // 30 second timeout for compression/decompression
 
+function validateTaskId(taskId: string): string {
+	const trimmed = taskId.trim();
+	if (!trimmed) {
+		throw new HashStoreError("Task ID cannot be empty");
+	}
+	if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
+		throw new HashStoreError("Task ID contains invalid characters");
+	}
+	return trimmed;
+}
+
 /**
  * Wrap a promise with a timeout
  */
@@ -207,6 +218,8 @@ export class FileReferenceNotFoundError extends HashStoreError {
  * - Automatic cleanup after task completion
  */
 export class FileHashStore {
+	/** Task identifier */
+	private readonly taskId: string;
 	/** Base directory for hash storage */
 	private readonly baseDir: string;
 	/** Task-specific directory */
@@ -227,14 +240,15 @@ export class FileHashStore {
 	 * @param projectRoot - Project root directory (defaults to current working directory)
 	 */
 	constructor(
-		private readonly taskId: string,
+		taskId: string,
 		private readonly projectRoot: string = process.cwd(),
 	) {
+		this.taskId = validateTaskId(taskId);
 		this.baseDir = resolve(projectRoot, HASH_STORE_DIR);
-		this.taskDir = join(this.baseDir, taskId);
+		this.taskDir = join(this.baseDir, this.taskId);
 		this.indexPath = join(this.taskDir, ".ralphy-hashes-ref.json");
 		this.index = {
-			taskId,
+			taskId: this.taskId,
 			files: {},
 			createdAt: Date.now(),
 			updatedAt: Date.now(),

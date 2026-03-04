@@ -100,6 +100,7 @@ export function batchByColor(
 	maxParallel: number,
 ): Map<number, PlannedTask[]> {
 	const batches = new Map<number, PlannedTask[]>();
+	const safeMaxParallel = Number.isFinite(maxParallel) && maxParallel > 0 ? Math.floor(maxParallel) : 1;
 
 	for (const task of tasks) {
 		const color = colors.get(task.task.id) || 0;
@@ -122,11 +123,11 @@ export function batchByColor(
 
 	for (const color of sortedColors) {
 		const batch = batches.get(color) || [];
-		if (batch.length <= maxParallel) {
+		if (batch.length <= safeMaxParallel) {
 			finalBatches.set(nextBatchId++, batch);
 		} else {
-			for (let i = 0; i < batch.length; i += maxParallel) {
-				finalBatches.set(nextBatchId++, batch.slice(i, i + maxParallel));
+			for (let i = 0; i < batch.length; i += safeMaxParallel) {
+				finalBatches.set(nextBatchId++, batch.slice(i, i + safeMaxParallel));
 			}
 		}
 	}
