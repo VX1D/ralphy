@@ -91,20 +91,6 @@ export async function execCommand(
 }
 
 /**
- * Safely execute a command with automatic validation
- * Convenience wrapper that always validates before execution
- */
-export async function execCommandSafe(
-	command: string,
-	args: string[],
-	workDir: string,
-	env?: Record<string, string>,
-	stdinContent?: string,
-): Promise<ExecutionResult> {
-	return execCommand(command, args, workDir, env, stdinContent);
-}
-
-/**
  * Execute command using Bun runtime
  */
 async function execWithBun(
@@ -157,22 +143,8 @@ function execWithNode(
 	env?: Record<string, string>,
 	stdinContent?: string,
 ): Promise<ExecutionResult> {
-	// Validate before execution
-	const validation = validateCommandAndArgs(command, args);
-	if (!validation.valid || !validation.command || !validation.args) {
-		return Promise.resolve({
-			stdout: "",
-			stderr: `Error: ${validation.error}`,
-			exitCode: 1,
-		});
-	}
-
-	// Store validated values to ensure TypeScript knows they're defined
-	const validatedCommand = validation.command;
-	const validatedArgs = validation.args;
-
 	return new Promise((resolve) => {
-		const proc = spawn(validatedCommand, validatedArgs, {
+		const proc = spawn(command, args, {
 			cwd: workDir,
 			env: { ...process.env, ...env },
 			stdio: [stdinContent ? "pipe" : "ignore", "pipe", "pipe"],

@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { ErrorSchema, parseJsonLine, StepFinishSchema } from "../utils/json-validation.ts";
+import { ErrorSchema, StepFinishSchema, parseJsonLine } from "../utils/json-validation.ts";
 import type { AIResult } from "./types.ts";
 
 /**
@@ -31,7 +31,10 @@ function isAuthenticationMessage(message: string): boolean {
 }
 
 export function extractAuthenticationError(output: string): string | null {
-	const lines = output.split("\n").map((line) => line.trim()).filter(Boolean);
+	const lines = output
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
 
 	for (const line of lines) {
 		let event: Record<string, unknown> | null = null;
@@ -62,7 +65,9 @@ export function extractAuthenticationError(output: string): string | null {
 		if (type === "error") {
 			const errorObj = event.error;
 			const errorMessage =
-				errorObj && typeof errorObj === "object" && typeof (errorObj as { message?: unknown }).message === "string"
+				errorObj &&
+				typeof errorObj === "object" &&
+				typeof (errorObj as { message?: unknown }).message === "string"
 					? (errorObj as { message: string }).message
 					: typeof event.message === "string"
 						? event.message
@@ -124,14 +129,14 @@ export function checkForErrors(output: string): string | null {
 
 		// Look for common error patterns in plain text (case-insensitive)
 		const lowerTrimmed = trimmed.toLowerCase();
-		if (
-			lowerTrimmed.startsWith("fatal:") ||
+		const hasExplicitErrorPrefix = lowerTrimmed.startsWith("fatal:");
+		const hasKnownModelErrorToken =
 			lowerTrimmed.includes("providermodelnotfounderror") ||
 			lowerTrimmed.includes("modelnotfounderror") ||
-			lowerTrimmed.includes("model not found") ||
-			lowerTrimmed.includes("invalid model") ||
-			lowerTrimmed.includes("not available")
-		) {
+			(lowerTrimmed.includes("model not found") && lowerTrimmed.includes("error")) ||
+			(lowerTrimmed.includes("invalid model") && lowerTrimmed.includes("error"));
+
+		if (hasExplicitErrorPrefix || hasKnownModelErrorToken) {
 			// Improve specific error messages
 			if (lowerTrimmed.includes("rate limit")) {
 				return "OpenCode Rate Limit: Too many requests. Try: Wait 30-60s";
@@ -241,7 +246,12 @@ export function detectStepFromOutput(line: string, logThoughts = true): string |
 	const trimmed = line.trim();
 
 	// Skip empty lines and obvious non-step lines
-	if (!trimmed || trimmed.startsWith("```") || trimmed.startsWith("$")) {
+	if (!trimmed || trimmed.startsWith("```") || trimmed.startsWith("$") || trimmed.startsWith("{")) {
+		return null;
+	}
+
+	// Skip markdown headings and list bullets - they often produce noisy false positives
+	if (/^#{1,6}\s+/.test(trimmed) || /^[-*+]\s+/.test(trimmed)) {
 		return null;
 	}
 
@@ -264,6 +274,11 @@ export function detectStepFromOutput(line: string, logThoughts = true): string |
 	for (const pattern of stepPatterns) {
 		const match = trimmed.match(pattern);
 		if (match) {
+			// Avoid generic assistant chatter being treated as an execution step
+			if (/^(i can|i think|i need|it looks like|we should)\b/i.test(trimmed)) {
+				return null;
+			}
+
 			// Extract the full action description (first sentence or up to 100 chars)
 			let step = trimmed;
 			const sentenceEnd = step.match(/[.!?](?:\s|$)/);

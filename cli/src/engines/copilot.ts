@@ -112,12 +112,14 @@ export class CopilotEngine extends BaseAIEngine {
 	}
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
-		const { args } = this.buildArgsInternal(prompt, options);
-		const pIndex = args.indexOf("-p");
-		const tempFile = pIndex >= 0 && pIndex < args.length - 1 ? args[pIndex + 1] : undefined;
+		let tempFile: string | undefined;
 
 		const startTime = Date.now();
 		try {
+			const { args } = this.buildArgsInternal(prompt, options);
+			const pIndex = args.indexOf("-p");
+			tempFile = pIndex >= 0 && pIndex < args.length - 1 ? args[pIndex + 1] : undefined;
+
 			const { stdout, stderr, exitCode } = await execCommand(this.cliCommand, args, workDir);
 			const durationMs = Date.now() - startTime;
 
@@ -227,14 +229,16 @@ export class CopilotEngine extends BaseAIEngine {
 		onProgress: ProgressCallback,
 		options?: EngineOptions,
 	): Promise<AIResult> {
-		const { args } = this.buildArgsInternal(prompt, options);
-		const pIndex = args.indexOf("-p");
-		const tempFile = pIndex >= 0 && pIndex < args.length - 1 ? args[pIndex + 1] : undefined;
+		let tempFile: string | undefined;
 
 		const outputLines: string[] = [];
 		const startTime = Date.now();
 
 		try {
+			const { args } = this.buildArgsInternal(prompt, options);
+			const pIndex = args.indexOf("-p");
+			tempFile = pIndex >= 0 && pIndex < args.length - 1 ? args[pIndex + 1] : undefined;
+
 			const { exitCode } = await execCommandStreaming(this.cliCommand, args, workDir, (line) => {
 				outputLines.push(line);
 

@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { logDebug as debugLog } from "../ui/logger.ts";
 import {
@@ -20,20 +21,17 @@ export class OpenCodeEngine extends BaseAIEngine {
 	/** Set up environment variables for OpenCode engine */
 	protected getEnv(options?: EngineOptions): Record<string, string> | undefined {
 		const env: Record<string, string> = {
-			...(options?.env || {}),
 			// Add rate limiting to prevent overwhelming the API
 			OPENCODE_REQUEST_DELAY: "1000",
+			...(options?.env || {}),
 		};
 
 		if (options?.debugOpenCode) {
 			env.DEBUG_OPENCODE = "true";
 		}
 
-		// Allow OpenCode to access ralphy's sandbox directories without permission prompts
-		// This is a security vs convenience trade-off - when enabled (default: true), OpenCode won't prompt
-		// for permission to access sandbox directories created by ralphy
-		// Only disable if explicitly set to false
-		if (options?.allowOpenCodeSandboxAccess !== false) {
+		// Allow OpenCode broad filesystem access only when explicitly opted in.
+		if (options?.allowOpenCodeSandboxAccess === true) {
 			env.OPENCODE_PERMISSION = '{"*":"allow"}';
 		}
 
@@ -76,60 +74,60 @@ export class OpenCodeEngine extends BaseAIEngine {
 		// Diagnostics: capture session-related artifacts only when explicit debug is enabled
 		if (options?.debugOpenCode || process.env.RALPHY_DEBUG === "true") {
 			try {
-			const diagLogPath = path.join(workDir, "opencode_diag.log");
-			let sessionId: string | undefined;
-			// Attempt to extract a sessionId from any JSON lines in the output
-			for (const line of combinedOutput.split(/\r?\n/)) {
-				if (!line?.trim()) continue;
-				try {
-					const obj = JSON.parse(line);
-					if (obj?.sessionID) {
-						sessionId = String(obj.sessionID);
-					} else if (obj?.sessionId) {
-						sessionId = String(obj.sessionId);
-					} else if (obj?.session_id) {
-						sessionId = String(obj.session_id);
+				const diagLogPath = path.join(os.tmpdir(), "ralphy-opencode_diag.log");
+				let sessionId: string | undefined;
+				// Attempt to extract a sessionId from any JSON lines in the output
+				for (const line of combinedOutput.split(/\r?\n/)) {
+					if (!line?.trim()) continue;
+					try {
+						const obj = JSON.parse(line);
+						if (obj?.sessionID) {
+							sessionId = String(obj.sessionID);
+						} else if (obj?.sessionId) {
+							sessionId = String(obj.sessionId);
+						} else if (obj?.session_id) {
+							sessionId = String(obj.session_id);
+						}
+					} catch {
+						// Ignore non-JSON lines in diagnostic extraction.
 					}
-				} catch (err) {
-					debugLog(`OpenCode: Failed to parse JSON line: ${err}`);
 				}
-			}
 
-			const diag = {
-				timestamp: new Date().toISOString(),
-				command: this.cliCommand,
-				argsCount: args.length,
-				workDir,
-				platform: process.platform,
-				exitCode,
-				sessionId,
-				stateDirHint: "[REDACTED]",
-				envSnapshot: {
-					HOME: "[REDACTED]",
-					USERPROFILE: "[REDACTED]",
-					XDG_STATE_HOME: "[REDACTED]",
-				},
-				stdoutBytes: Buffer.byteLength(stdout, "utf8"),
-				stderrBytes: Buffer.byteLength(stderr, "utf8"),
-				hasOutput: stdout.length > 0 || stderr.length > 0,
-			};
-			// Ensure the log directory exists and append the diagnostic entry
-			try {
-				fs.mkdirSync(workDir, { recursive: true });
-				// Check file size limit before appending
-				const MAX_DIAG_SIZE = 10 * 1024 * 1024; // 10MB limit
-				if (fs.existsSync(diagLogPath)) {
-					const stats = fs.statSync(diagLogPath);
-					if (stats.size > MAX_DIAG_SIZE) {
-						// Rotate log file
-						fs.renameSync(diagLogPath, `${diagLogPath}.old`);
+				const diag = {
+					timestamp: new Date().toISOString(),
+					command: this.cliCommand,
+					argsCount: args.length,
+					workDir,
+					platform: process.platform,
+					exitCode,
+					sessionId,
+					stateDirHint: "[REDACTED]",
+					envSnapshot: {
+						HOME: "[REDACTED]",
+						USERPROFILE: "[REDACTED]",
+						XDG_STATE_HOME: "[REDACTED]",
+					},
+					stdoutBytes: Buffer.byteLength(stdout, "utf8"),
+					stderrBytes: Buffer.byteLength(stderr, "utf8"),
+					hasOutput: stdout.length > 0 || stderr.length > 0,
+				};
+				// Ensure the log directory exists and append the diagnostic entry
+				try {
+					fs.mkdirSync(path.dirname(diagLogPath), { recursive: true });
+					// Check file size limit before appending
+					const MAX_DIAG_SIZE = 10 * 1024 * 1024; // 10MB limit
+					if (fs.existsSync(diagLogPath)) {
+						const stats = fs.statSync(diagLogPath);
+						if (stats.size > MAX_DIAG_SIZE) {
+							// Rotate log file
+							fs.renameSync(diagLogPath, `${diagLogPath}.old`);
+						}
 					}
+					fs.appendFileSync(diagLogPath, `${JSON.stringify(diag)}\n`);
+				} catch (err) {
+					// Log but don't crash on logging failures
+					debugLog(`Failed to write diagnostic log: ${err}`);
 				}
-				fs.appendFileSync(diagLogPath, `${JSON.stringify(diag)}\n`);
-			} catch (err) {
-				// Log but don't crash on logging failures
-				debugLog(`Failed to write diagnostic log: ${err}`);
-			}
 			} catch (diagErr) {
 				// If diagnostics fail for any reason, do not crash the engine
 				debugLog(`OpenCode: Diagnostic error (non-critical): ${diagErr}`);

@@ -80,18 +80,7 @@ export class GeminiEngine extends BaseAIEngine {
 	}
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
-		const args = ["--output-format", "stream-json", "--yolo"];
-		if (options?.modelOverride) {
-			args.push("--model", options.modelOverride);
-		}
-		// Add any additional engine-specific arguments
-		if (options?.engineArgs && options.engineArgs.length > 0) {
-			args.push(...options.engineArgs);
-		}
-
-		// Pass prompt via stdin for cross-platform compatibility
-		// This avoids shell escaping issues and argument length limits on all platforms
-		args.push("-p");
+		const args = this.buildArgs(prompt, workDir, options);
 		const stdinContent = prompt;
 
 		const { stdout, stderr, exitCode } = await execCommand(
@@ -144,18 +133,7 @@ export class GeminiEngine extends BaseAIEngine {
 		onProgress: ProgressCallback,
 		options?: EngineOptions,
 	): Promise<AIResult> {
-		const args = ["--output-format", "stream-json", "--yolo"];
-		if (options?.modelOverride) {
-			args.push("--model", options.modelOverride);
-		}
-		// Add any additional engine-specific arguments
-		if (options?.engineArgs && options.engineArgs.length > 0) {
-			args.push(...options.engineArgs);
-		}
-
-		// Pass prompt via stdin for cross-platform compatibility
-		// This avoids shell escaping issues and argument length limits on all platforms
-		args.push("-p");
+		const args = this.buildArgs(prompt, workDir, options);
 		const stdinContent = prompt;
 
 		const outputLines: string[] = [];
