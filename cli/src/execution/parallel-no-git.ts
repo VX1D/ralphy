@@ -9,7 +9,7 @@ import { isRetryableError } from "./retry.ts";
 import type { AgentRunnerOptions } from "./runner-types.ts";
 import { cleanupSandbox, getSandboxBase } from "./sandbox.ts";
 import type { ExecutionOptions, ExecutionResult } from "./sequential.ts";
-import { detectStateFormat, type StateFormat, TaskState, TaskStateManager } from "./task-state.ts";
+import { type StateFormat, TaskState, TaskStateManager, detectStateFormat } from "./task-state.ts";
 
 /**
  * Run tasks in parallel using sandboxes only (no git worktrees)
@@ -73,7 +73,12 @@ export async function runParallelNoGit(
 		// Detect format from prdFile extension
 		const format: StateFormat = detectStateFormat(prdFile);
 
-		taskStateManager = new TaskStateManager(workDir, taskSource.type, prdFile || "tasks.yaml", format);
+		taskStateManager = new TaskStateManager(
+			workDir,
+			taskSource.type,
+			prdFile || "tasks.yaml",
+			format,
+		);
 
 		// Get all tasks and initialize state manager
 		const allTasks = await taskSource.getAllTasks();
@@ -288,9 +293,24 @@ export async function runParallelNoGit(
 				if (failureReason) {
 					const retryable = isRetryableError(failureReason);
 					if (retryable) {
+						const deferrals = recordDeferredTask(taskSource.type, task, workDir, prdFile);
 						sawRetryableFailure = true;
-						logWarn(`Task "${task.title}" encountered retryable error: ${failureReason}`);
-						await taskStateManager.transitionState(task.id, TaskState.DEFERRED, failureReason);
+						if (deferrals >= maxRetries) {
+							logError(
+								`Task "${task.title}" failed after ${deferrals} deferrals: ${failureReason}`,
+							);
+							await taskStateManager.transitionState(task.id, TaskState.FAILED, failureReason);
+							logTaskProgress(task.title, "failed", workDir);
+							result.tasksFailed++;
+							notifyTaskFailed(task.title, failureReason);
+							await taskSource.markComplete(task.id);
+							clearDeferredTask(taskSource.type, task, workDir, prdFile);
+						} else {
+							logWarn(
+								`Task "${task.title}" deferred (${deferrals}/${maxRetries}): ${failureReason}`,
+							);
+							await taskStateManager.transitionState(task.id, TaskState.DEFERRED, failureReason);
+						}
 					} else {
 						logError(`Task "${task.title}" failed: ${failureReason}`);
 						await taskStateManager.transitionState(task.id, TaskState.FAILED, failureReason);

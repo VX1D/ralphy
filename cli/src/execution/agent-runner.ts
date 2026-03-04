@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, join, normalize } from "node:path";
+import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { PROGRESS_FILE, RALPHY_DIR } from "../config/loader.ts";
 import type { AIResult } from "../engines/types.ts";
 import { createAgentWorktree } from "../git/worktree.ts";
@@ -25,12 +25,12 @@ export type { AgentRunnerOptions, ParallelAgentResult } from "./runner-types.ts"
 
 import type { AgentRunnerOptions, ParallelAgentResult } from "./runner-types.ts";
 import {
+	DEFAULT_SYMLINK_DIRS,
+	SANDBOX_DIR_PREFIX,
 	copyBackPlannedFilesParallel,
 	copyPlannedFilesIsolated,
 	copySkillFolders,
 	createSandbox,
-	DEFAULT_SYMLINK_DIRS,
-	SANDBOX_DIR_PREFIX,
 	symlinkSharedResources,
 	validatePath,
 } from "./sandbox.ts";
@@ -41,6 +41,30 @@ function getFilteredSymlinkDirs(noGitParallel: boolean): string[] {
 		return DEFAULT_SYMLINK_DIRS.filter((dir) => dir !== ".git");
 	}
 	return DEFAULT_SYMLINK_DIRS;
+}
+
+function resolveSafeRelativePath(baseDir: string, candidatePath: string): string | null {
+	if (!candidatePath || isAbsolute(candidatePath)) {
+		return null;
+	}
+
+	const normalized = normalize(candidatePath);
+	const resolved = resolve(baseDir, normalized);
+	const rel = relative(baseDir, resolved);
+
+	if (rel === "" || rel === ".") {
+		return normalized;
+	}
+
+	if (rel.startsWith(`..${sep}`) || rel === "..") {
+		return null;
+	}
+
+	if (isAbsolute(rel)) {
+		return null;
+	}
+
+	return rel;
 }
 
 /**
@@ -65,7 +89,13 @@ async function runAgent(targetDir: string, options: AgentRunnerOptions): Promise
 	const filesToCopy = options.filesToCopy;
 	if (options.planningModel && (!filesToCopy || filesToCopy.length === 0)) {
 		// Signal planning phase
-		StaticAgentDisplay.getInstance()?.setAgentStatus(options.agentNum, task.title, "working", "planning", "planning");
+		StaticAgentDisplay.getInstance()?.setAgentStatus(
+			options.agentNum,
+			task.title,
+			"working",
+			"planning",
+			"planning",
+		);
 
 		// Create planning progress callback
 		const onPlanningProgress = (event: PlanningProgressEvent) => {
@@ -114,7 +144,10 @@ async function runAgent(targetDir: string, options: AgentRunnerOptions): Promise
 			};
 		}
 
-		if (planningResult.files.length > 0 || (planningResult.plan && planningResult.plan.length > 0)) {
+		if (
+			planningResult.files.length > 0 ||
+			(planningResult.plan && planningResult.plan.length > 0)
+		) {
 			logDebug(
 				`Agent ${options.agentNum}: Planning phase identified ${planningResult.files.length} files with ${planningResult.plan?.length || 0} steps`,
 			);
@@ -123,7 +156,9 @@ async function runAgent(targetDir: string, options: AgentRunnerOptions): Promise
 			options.planningSteps = planningResult.plan;
 			// Copy these files to the target directory if they aren't there already
 			await copyPlannedFilesIsolated(originalDir, targetDir, planningResult.files);
-			logDebug(`Agent ${options.agentNum}: Pre-copied ${planningResult.files.length} files based on plan`);
+			logDebug(
+				`Agent ${options.agentNum}: Pre-copied ${planningResult.files.length} files based on plan`,
+			);
 
 			// Add explicit transition feedback
 			const display = StaticAgentDisplay.getInstance();
@@ -151,7 +186,8 @@ async function runAgent(targetDir: string, options: AgentRunnerOptions): Promise
 
 	// Check if we should use orchestrator pattern for test model
 	const useOrchestrator = Boolean(
-		options.testModel && shouldUseOrchestrator(task.title || "", task.description || "", options.testModel),
+		options.testModel &&
+			shouldUseOrchestrator(task.title || "", task.description || "", options.testModel),
 	);
 
 	// Build execution prompt (with orchestrator instructions if enabled)
@@ -169,7 +205,9 @@ async function runAgent(targetDir: string, options: AgentRunnerOptions): Promise
 	});
 
 	if (useOrchestrator) {
-		logDebug(`Agent ${options.agentNum}: Using orchestrator pattern with test model ${options.testModel}`);
+		logDebug(
+			`Agent ${options.agentNum}: Using orchestrator pattern with test model ${options.testModel}`,
+		);
 
 		// Status update
 		if (!options.planningModel) {
@@ -223,7 +261,8 @@ async function runAgent(targetDir: string, options: AgentRunnerOptions): Promise
 
 	// Determine if this is a test-related task and select appropriate model and phase
 	const isTestTask = /test|testing|tests?|spec|coverage/i.test(task.title || task.id);
-	const effectiveModel = isTestTask && options.testModel ? options.testModel : options.modelOverride;
+	const effectiveModel =
+		isTestTask && options.testModel ? options.testModel : options.modelOverride;
 
 	// Set phase to testing for test tasks
 	if (isTestTask) {
@@ -296,10 +335,22 @@ export async function runAgentInSandbox(
 	sandboxBase: string,
 	options: AgentRunnerOptions,
 ): Promise<ParallelAgentResult> {
-	const { agentNum, originalDir, prdSource, prdFile, prdIsFolder, task, filesToCopy, noGitParallel } = options;
+	const {
+		agentNum,
+		originalDir,
+		prdSource,
+		prdFile,
+		prdIsFolder,
+		task,
+		filesToCopy,
+		noGitParallel,
+	} = options;
 	// Use cryptographically secure random for sandbox directory naming
 	const uniqueSuffix = randomBytes(4).toString("hex");
-	const sandboxDir = join(sandboxBase, `${SANDBOX_DIR_PREFIX}${agentNum}-${Date.now()}-${uniqueSuffix}`);
+	const sandboxDir = join(
+		sandboxBase,
+		`${SANDBOX_DIR_PREFIX}${agentNum}-${Date.now()}-${uniqueSuffix}`,
+	);
 
 	try {
 		mkdirSync(sandboxDir, { recursive: true });
@@ -312,7 +363,9 @@ export async function runAgentInSandbox(
 
 			// Copy planned files into sandbox
 			await copyPlannedFilesIsolated(originalDir, sandboxDir, filesToCopy);
-			logDebug(`Agent ${agentNum}: Copied ${filesToCopy.length} planned files for selective isolation`);
+			logDebug(
+				`Agent ${agentNum}: Copied ${filesToCopy.length} planned files for selective isolation`,
+			);
 		} else if (options.useSemanticChunking !== false) {
 			// Use semantic chunking to determine relevant files
 			try {
@@ -387,7 +440,9 @@ export async function runAgentInSandbox(
 					};
 				}
 			} catch (error) {
-				logDebug(`Agent ${agentNum}: Semantic chunking failed, falling back to full sandbox: ${error}`);
+				logDebug(
+					`Agent ${agentNum}: Semantic chunking failed, falling back to full sandbox: ${error}`,
+				);
 			}
 		}
 
@@ -427,7 +482,9 @@ export async function runAgentInSandbox(
 		// Enhanced error logging for engine execution issues
 		if (errorMsg.includes("exitCode")) {
 			const engineName = options.engine.name;
-			logDebug(`Agent ${options.agentNum}: Engine execution error - possibly ${engineName} CLI/API issue: ${errorMsg}`);
+			logDebug(
+				`Agent ${options.agentNum}: Engine execution error - possibly ${engineName} CLI/API issue: ${errorMsg}`,
+			);
 			logDebug(`Check ${engineName} CLI availability: '${options.engine.cliCommand} --help'`);
 		}
 
@@ -457,7 +514,13 @@ export async function runAgentInWorktree(
 
 	try {
 		// Create worktree
-		const worktree = await createAgentWorktree(task.title, agentNum, baseBranch, worktreeBase, originalDir);
+		const worktree = await createAgentWorktree(
+			task.title,
+			agentNum,
+			baseBranch,
+			worktreeBase,
+			originalDir,
+		);
 		worktreeDir = worktree.worktreeDir;
 		branchName = worktree.branchName;
 
@@ -503,16 +566,23 @@ function copyPrdResources(
 	prdFile: string,
 	prdIsFolder: boolean,
 ) {
+	const safePrdPath = resolveSafeRelativePath(originalDir, prdFile);
+	if (!safePrdPath) {
+		throw new Error(`Invalid PRD path outside project: ${prdFile}`);
+	}
+
 	if (prdSource === "markdown" || prdSource === "yaml") {
-		const srcPath = join(originalDir, prdFile);
-		const destPath = join(targetDir, prdFile);
+		const srcPath = join(originalDir, safePrdPath);
+		const destPath = join(targetDir, safePrdPath);
 		if (existsSync(srcPath)) {
+			mkdirSync(dirname(destPath), { recursive: true });
 			copyFileSync(srcPath, destPath);
 		}
 	} else if (prdSource === "markdown-folder" && prdIsFolder) {
-		const srcPath = join(originalDir, prdFile);
-		const destPath = join(targetDir, prdFile);
+		const srcPath = join(originalDir, safePrdPath);
+		const destPath = join(targetDir, safePrdPath);
 		if (existsSync(srcPath)) {
+			mkdirSync(dirname(destPath), { recursive: true });
 			cpSync(srcPath, destPath, { recursive: true });
 		}
 	}

@@ -82,7 +82,13 @@ export function standardizeError(error: unknown): RalphyError {
 export function isRetryableError(error: unknown): boolean {
 	const standardized = standardizeError(error);
 
-	const retryableCodes = ["TIMEOUT_ERROR", "LOCK_ERROR", "PROCESS_ERROR", "NETWORK_ERROR", "RATE_LIMIT_ERROR"];
+	const retryableCodes = [
+		"TIMEOUT_ERROR",
+		"LOCK_ERROR",
+		"PROCESS_ERROR",
+		"NETWORK_ERROR",
+		"RATE_LIMIT_ERROR",
+	];
 
 	const retryableMessages = [
 		"timeout",
@@ -101,6 +107,11 @@ export function isRetryableError(error: unknown): boolean {
 		"econnreset",
 		"socket hang up",
 		"fetch failed",
+		"hit your limit",
+		"quota",
+		"429",
+		"enotfound",
+		"overloaded",
 	];
 
 	const message = standardized.message.toLowerCase();
@@ -117,7 +128,10 @@ export function isRetryableError(error: unknown): boolean {
 /**
  * Create error with context for logging
  */
-export function createErrorWithContext(error: unknown, context: Record<string, unknown>): RalphyError {
+export function createErrorWithContext(
+	error: unknown,
+	context: Record<string, unknown>,
+): RalphyError {
 	const standardized = standardizeError(error);
 
 	if (standardized.context) {

@@ -1,14 +1,21 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	lstatSync,
+	readFileSync,
+	readdirSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { DEFAULT_MAX_REPLANS, PLANNING_CACHE_FILE } from "../config/constants.ts";
 import { RALPHY_DIR } from "../config/loader.ts";
 import type { AIEngine, AIResult } from "../engines/types.ts";
 import type { Task } from "../tasks/types.ts";
-import type { PlanningProgressCallback, PlanningProgressEvent } from "./progress-types.ts";
 import { logDebug, logWarn } from "../ui/logger.ts";
 import { extractTaskKeywords, getRelevantFilesForTask } from "../utils/file-indexer.ts";
+import type { PlanningProgressCallback, PlanningProgressEvent } from "./progress-types.ts";
 import { buildPlanningPrompt } from "./prompt.ts";
 
 // Re-export PlanningProgressEvent from ui module for backward compatibility
@@ -217,7 +224,10 @@ export function parsePlannedFiles(response: string): string[] {
 		let inManualBlock = false;
 		for (const line of lines) {
 			const trimmed = line.trim();
-			if (trimmed.toUpperCase().includes("FILES") && (trimmed.includes("<") || trimmed.includes("["))) {
+			if (
+				trimmed.toUpperCase().includes("FILES") &&
+				(trimmed.includes("<") || trimmed.includes("["))
+			) {
 				inManualBlock = true;
 				continue;
 			}
@@ -339,7 +349,10 @@ export async function planTaskFiles(
 				taskId,
 				status: "started",
 				timestamp: Date.now(),
-				message: relevantFiles.length > 0 ? `Planning with ${relevantFiles.length} relevant files...` : "Planning...",
+				message:
+					relevantFiles.length > 0
+						? `Planning with ${relevantFiles.length} relevant files...`
+						: "Planning...",
 			});
 		} catch (error) {
 			// Don't let progress callback errors break planning
@@ -349,7 +362,7 @@ export async function planTaskFiles(
 
 	// Use planningModel if provided, otherwise default to modelOverride or engine default
 	const options = {
-		modelOverride: modelOverride || undefined,
+		modelOverride: planningModel || modelOverride || undefined,
 		...(debugOpenCode && { debugOpenCode }),
 		...(logThoughts !== undefined && { logThoughts }),
 		...(engineArgs && engineArgs.length > 0 && { engineArgs }),
@@ -379,12 +392,24 @@ export async function planTaskFiles(
 				// Detect specific actions for better display
 				if (step.includes("analyzing") || step.includes("I need to") || step.includes("I should")) {
 					status = "analyzing";
-				} else if (step.includes("planning") || step.includes("I'll create") || step.includes("Let me create")) {
+				} else if (
+					step.includes("planning") ||
+					step.includes("I'll create") ||
+					step.includes("Let me create")
+				) {
 					status = "planning";
-				} else if (step.includes("Reading") || step.includes("Looking at") || step.includes("Let me examine")) {
+				} else if (
+					step.includes("Reading") ||
+					step.includes("Looking at") ||
+					step.includes("Let me examine")
+				) {
 					status = "analyzing";
 					message = "Reading project structure and files";
-				} else if (step.includes("identifying") || step.includes("found") || step.includes("need to modify")) {
+				} else if (
+					step.includes("identifying") ||
+					step.includes("found") ||
+					step.includes("need to modify")
+				) {
 					status = "planning";
 					message = "Identifying files that need changes";
 				} else if (step.includes("completed") || step.includes("done") || step.includes("ready")) {
@@ -451,7 +476,9 @@ export async function planTaskFiles(
 			}
 
 			const helpfulError = `Planning failed: AI returned tool output${toolInfo} instead of planning analysis. The AI may have started executing prematurely. This usually indicates the planning prompt was too complex or the AI engine interrupted the planning phase.`;
-			logDebug(`Raw tool use detected instead of planning format. Response: ${rawResponse.substring(0, 500)}...`);
+			logDebug(
+				`Raw tool use detected instead of planning format. Response: ${rawResponse.substring(0, 500)}...`,
+			);
 
 			if (onProgress) {
 				try {
@@ -467,7 +494,9 @@ export async function planTaskFiles(
 			}
 
 			if (maxReplans > 0) {
-				logDebug(`Planning failed with malformed response, retrying... (${maxReplans} attempts left)`);
+				logDebug(
+					`Planning failed with malformed response, retrying... (${maxReplans} attempts left)`,
+				);
 				return planTaskFiles(
 					engine,
 					task,
@@ -503,13 +532,17 @@ export async function planTaskFiles(
 		if (maxReplans > 0) {
 			// Check if this is a connection error that warrants a longer retry delay
 			const isConnectionError =
-				/connection|network|timeout|unable to connect|internet connection|econnrefused|econnreset/i.test(error);
+				/connection|network|timeout|unable to connect|internet connection|econnrefused|econnreset/i.test(
+					error,
+				);
 			const attemptNumber = DEFAULT_MAX_REPLANS - maxReplans + 1;
 
 			if (isConnectionError) {
 				// Exponential backoff for connection errors: 2s, 4s, 8s
 				const delayMs = Math.min(2000 * 2 ** (attemptNumber - 1), 10000);
-				logWarn(`Connection error detected. Retrying in ${delayMs}ms... (${maxReplans} attempts left)`);
+				logWarn(
+					`Connection error detected. Retrying in ${delayMs}ms... (${maxReplans} attempts left)`,
+				);
 
 				if (onProgress) {
 					try {

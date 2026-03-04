@@ -1,8 +1,20 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join, normalize, resolve } from "node:path";
 import process from "node:process";
-import { LOCK_CLEANUP_INTERVAL_MS, LOCK_DIR, LOCK_MAX_LOCKS, LOCK_TIMEOUT_MS } from "../config/constants.ts";
+import {
+	LOCK_CLEANUP_INTERVAL_MS,
+	LOCK_DIR,
+	LOCK_MAX_LOCKS,
+	LOCK_TIMEOUT_MS,
+} from "../config/constants.ts";
 import { logDebug, logWarn } from "../ui/logger.ts";
 import { registerCleanup } from "../utils/cleanup.ts";
 
@@ -16,6 +28,8 @@ interface LockInfo {
 // Unified lock structure for better performance
 const locks = new Map<string, LockInfo>();
 const lockOwner = `${process.pid.toString()}-${Date.now()}`;
+const sleepBuffer = new SharedArrayBuffer(4);
+const sleepArray = new Int32Array(sleepBuffer);
 function sleepBlocking(ms: number): void {
 	if (ms <= 0) return;
 
@@ -24,9 +38,11 @@ function sleepBlocking(ms: number): void {
 		return;
 	}
 
-	const end = Date.now() + ms;
-	while (Date.now() < end) {
-		// Busy wait fallback for non-Bun runtimes.
+	try {
+		// Node runtime fallback. If unavailable in current runtime/thread, skip blocking delay.
+		Atomics.wait(sleepArray, 0, 0, ms);
+	} catch {
+		// No-op fallback.
 	}
 }
 
@@ -136,7 +152,12 @@ function getGlobalLockState(): NonNullable<RalphyGlobalState["_lockState"]> {
 	return (globalThis as RalphyGlobalState)._lockState!;
 }
 
-export function acquireFileLock(filePath: string, workDir: string, maxRetries = 5, allowReentrant = false): boolean {
+export function acquireFileLock(
+	filePath: string,
+	workDir: string,
+	maxRetries = 5,
+	allowReentrant = false,
+): boolean {
 	const normalizedPath = normalizePathForLocking(filePath, workDir);
 	const now = Date.now();
 
@@ -259,7 +280,9 @@ export function acquireFileLock(filePath: string, workDir: string, maxRetries = 
 				const jitter = Number.parseInt(randomBytes(2).toString("hex"), 16) % 50; // 0-50ms jitter
 				const delay = Math.min(baseDelay + jitter, 5000); // Max 5 seconds
 
-				logDebug(`Lock acquisition attempt ${attempt}/${maxRetries} failed, retrying in ${Math.round(delay)}ms`);
+				logDebug(
+					`Lock acquisition attempt ${attempt}/${maxRetries} failed, retrying in ${Math.round(delay)}ms`,
+				);
 				sleepBlocking(delay);
 			}
 		}
@@ -355,7 +378,9 @@ export function cleanupStaleLocks(): void {
 
 	// If still too many, remove oldest but check ownership
 	if (locks.size > LOCK_MAX_LOCKS) {
-		logWarn(`Lock registry size (${locks.size}) exceeded ${LOCK_MAX_LOCKS}. Evicting oldest non-own locks.`);
+		logWarn(
+			`Lock registry size (${locks.size}) exceeded ${LOCK_MAX_LOCKS}. Evicting oldest non-own locks.`,
+		);
 
 		const sorted = Array.from(locks.entries()).sort((a, b) => a[1].timestamp - b[1].timestamp);
 

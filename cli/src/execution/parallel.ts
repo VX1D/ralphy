@@ -59,8 +59,8 @@ function readTrackingFile(wd: string): TrackedWorktree[] {
 	try {
 		return JSON.parse(readFileSync(trackingFile, "utf8"));
 	} catch (err) {
-		logDebug(`Failed to read tracking file, starting fresh: ${err}`);
-		return [];
+		logWarn(`Tracking file unreadable/corrupted: ${err}`);
+		throw err;
 	}
 }
 
@@ -181,6 +181,13 @@ async function cleanupOrphanedWorktrees(wd: string): Promise<void> {
 					const git = simpleGit(wd);
 					try {
 						await git.raw(["worktree", "remove", "-f", entry.worktreeDir]);
+						if (entry.branchName) {
+							try {
+								await git.raw(["branch", "-D", entry.branchName]);
+							} catch (branchErr) {
+								logDebug(`Branch cleanup skipped for ${entry.branchName}: ${branchErr}`);
+							}
+						}
 					} catch (gitErr) {
 						logDebug(`Git worktree remove failed: ${gitErr}`);
 						if (existsSync(entry.worktreeDir)) {
@@ -483,13 +490,13 @@ export async function runParallel(
 				continue;
 			}
 
-			// Use graph coloring for optimal batching when tasks have file information
+			// Use graph coloring to select the next conflict-aware batch when file information is available.
 			let batch: Task[] = [];
 			const plannedTasks = filteredTasks.map((t) => taskToPlannedTask(t, t.body || ""));
 			const tasksWithFiles = plannedTasks.filter((pt) => pt.files.length > 0);
 
 			if (tasksWithFiles.length === filteredTasks.length && tasksWithFiles.length > 1) {
-				logDebug("Using graph coloring for conflict-aware batching...");
+				logDebug("Using graph coloring to pick next conflict-aware batch...");
 				const graph = buildConflictGraph(plannedTasks);
 				const colors = colorGraph(plannedTasks, graph);
 				const batches = batchByColor(plannedTasks, colors, maxParallel);
@@ -618,11 +625,9 @@ export async function runParallel(
 
 				if (res.status === "rejected") {
 					const error = res.reason;
+					const errorMessage = String(error);
 					allErrors.push({ task, error: String(error) });
 					logError(`Task "${task.title}" failed: ${error}`);
-					logTaskProgress(task.title, "failed", workDir);
-					result.tasksFailed++;
-					notifyTaskFailed(task.title, String(error));
 
 					// Check if failure is planning-related
 					if (isPlanningRejection(error)) {
@@ -636,8 +641,32 @@ export async function runParallel(
 						continue;
 					}
 
+					const retryable = isRetryableError(errorMessage);
+					if (retryable) {
+						const deferrals = recordDeferredTask(taskSource.type, task, workDir, prdFile);
+						sawRetryableFailure = true;
+						if (deferrals >= maxRetries) {
+							logError(`Task "${task.title}" failed after ${deferrals} deferrals: ${errorMessage}`);
+							await taskStateManager.transitionState(task.id, TaskState.FAILED, errorMessage);
+							logTaskProgress(task.title, "failed", workDir);
+							result.tasksFailed++;
+							notifyTaskFailed(task.title, errorMessage);
+							await taskSource.markComplete(task.id);
+							clearDeferredTask(taskSource.type, task, workDir, prdFile);
+						} else {
+							logWarn(
+								`Task "${task.title}" deferred (${deferrals}/${maxRetries}): ${errorMessage}`,
+							);
+							await taskStateManager.transitionState(task.id, TaskState.DEFERRED, errorMessage);
+						}
+						continue;
+					}
+
 					// Execution phase failure - transition to failed state
-					await taskStateManager.transitionState(task.id, TaskState.FAILED, String(error));
+					await taskStateManager.transitionState(task.id, TaskState.FAILED, errorMessage);
+					logTaskProgress(task.title, "failed", workDir);
+					result.tasksFailed++;
+					notifyTaskFailed(task.title, errorMessage);
 					await taskSource.markComplete(task.id);
 					clearDeferredTask(taskSource.type, task, workDir, prdFile);
 					continue;
@@ -702,7 +731,9 @@ export async function runParallel(
 						const deferrals = recordDeferredTask(taskSource.type, task, workDir, prdFile);
 						sawRetryableFailure = true;
 						if (deferrals >= maxRetries) {
-							logError(`Task "${task.title}" failed after ${deferrals} deferrals: ${finalFailureReason}`);
+							logError(
+								`Task "${task.title}" failed after ${deferrals} deferrals: ${finalFailureReason}`,
+							);
 							await taskStateManager.transitionState(task.id, TaskState.FAILED, finalFailureReason);
 							logTaskProgress(task.title, "failed", workDir);
 							result.tasksFailed++;
@@ -713,7 +744,11 @@ export async function runParallel(
 							logWarn(
 								`Task "${task.title}" deferred (${deferrals}/${maxRetries}): ${finalFailureReason}`,
 							);
-							await taskStateManager.transitionState(task.id, TaskState.DEFERRED, finalFailureReason);
+							await taskStateManager.transitionState(
+								task.id,
+								TaskState.DEFERRED,
+								finalFailureReason,
+							);
 						}
 					} else {
 						logError(`Task "${task.title}" failed: ${finalFailureReason}`);

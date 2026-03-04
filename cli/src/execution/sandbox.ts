@@ -88,7 +88,7 @@ function syncDirectory(
 			if (existsSync(destPath) && !lstatSync(destPath).isDirectory()) {
 				rmSync(destPath, { force: true });
 			}
-			const subResult = syncDirectory(srcPath, destPath, () => false, currentDepth + 1);
+			const subResult = syncDirectory(srcPath, destPath, ignorePatterns, currentDepth + 1);
 			filesCopied += subResult.filesCopied;
 			filesDeleted += subResult.filesDeleted;
 		} else if (srcStat.isFile()) {
