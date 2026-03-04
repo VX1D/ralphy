@@ -304,73 +304,15 @@ export async function runAgentInSandbox(
 	try {
 		mkdirSync(sandboxDir, { recursive: true });
 
-		// If selective isolation is explicitly requested (including empty file list), never fall back to full.
-		if (Array.isArray(filesToCopy)) {
+		// If selective isolation is requested (filesToCopy provided)
+		if (filesToCopy && Array.isArray(filesToCopy) && filesToCopy.length > 0) {
 			// Copy skill folders and symlink shared resources
 			copySkillFolders(originalDir, sandboxDir);
 			symlinkSharedResources(originalDir, sandboxDir, getFilteredSymlinkDirs(!!noGitParallel));
 
-			if (filesToCopy.length > 0) {
-				// Copy planned files into sandbox
-				await copyPlannedFilesIsolated(originalDir, sandboxDir, filesToCopy);
-				logDebug(`Agent ${agentNum}: Copied ${filesToCopy.length} planned files for selective isolation`);
-			} else {
-				logDebug(`Agent ${agentNum}: Selective isolation requested with no planned files`);
-			}
-
-			const beforeSnapshot = createSelectiveSnapshot(sandboxDir, filesToCopy);
-
-			// Ensure .ralphy/ exists
-			const ralphyDir = join(sandboxDir, RALPHY_DIR);
-			if (!existsSync(ralphyDir)) mkdirSync(ralphyDir, { recursive: true });
-
-			// Copy PRD resources
-			copyPrdResources(originalDir, sandboxDir, prdSource, prdFile, prdIsFolder);
-
-			// Run agent
-			const result = await runAgent(sandboxDir, options);
-
-			// Snapshot after execution and discover new files
-			const afterSnapshot = createSelectiveSnapshot(sandboxDir, filesToCopy);
-			const fullDirSnapshot = createDirectorySnapshot(sandboxDir);
-
-			for (const [relPath, snap] of fullDirSnapshot) {
-				if (!afterSnapshot.has(relPath) && !filesToCopy.includes(relPath)) {
-					if (!shouldIgnoreFile(relPath, ["node_modules/**", ".git/**", ".ralphy/**"])) {
-						afterSnapshot.set(relPath, snap);
-					}
-				}
-			}
-
-			const { modified, added } = compareSnapshots(beforeSnapshot, afterSnapshot);
-			const allChanges = [...modified, ...added].filter(
-				(file) => !isInRalphyDir(file) && normalize(file) !== normalize(prdFile),
-			);
-
-			if (allChanges.length > 0) {
-				try {
-					await copyBackPlannedFilesParallel(originalDir, sandboxDir, allChanges);
-					logDebug(`Agent ${agentNum}: Copied back ${allChanges.length} modified/new files`);
-				} catch (copyErr) {
-					logWarn(`Agent ${agentNum}: Failed to copy back files: ${copyErr}`);
-				}
-			}
-
-			// Release locks if they were held
-			try {
-				releaseLocksForFiles(filesToCopy, originalDir);
-			} catch (lockErr) {
-				logDebug(`Agent ${agentNum}: Failed to release locks: ${lockErr}`);
-			}
-
-			return {
-				task,
-				agentNum,
-				worktreeDir: sandboxDir,
-				branchName: "",
-				result,
-				usedSandbox: true,
-			};
+			// Copy planned files into sandbox
+			await copyPlannedFilesIsolated(originalDir, sandboxDir, filesToCopy);
+			logDebug(`Agent ${agentNum}: Copied ${filesToCopy.length} planned files for selective isolation`);
 		} else if (options.useSemanticChunking !== false) {
 			// Use semantic chunking to determine relevant files
 			try {

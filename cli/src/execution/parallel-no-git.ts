@@ -168,20 +168,22 @@ export async function runParallelNoGit(
 				continue;
 			}
 
-			// Initialize agent progress map for static display
-			for (const task of batch) {
-				const agentNum = getNextAgentNum();
-				const initialPhase = planningModel ? "planning" : "execution";
-				const initialModel = planningModel ? "planning" : "main";
-				staticAgentDisplay.setAgentStatus(agentNum, task.title, "working", initialPhase, initialModel);
-			}
-
-			// Claim tasks for execution before starting
-			const claimedTasks: Task[] = [];
+			// Claim tasks for execution before starting and assign stable agent numbers
+			const claimedTasks: Array<{ task: Task; agentNum: number }> = [];
 			for (const task of batch) {
 				const claimed = await taskStateManager.claimTaskForExecution(task.id);
 				if (claimed) {
-					claimedTasks.push(task);
+					const agentNum = getNextAgentNum();
+					const initialPhase = planningModel ? "planning" : "execution";
+					const initialModel = planningModel ? "planning" : "main";
+					staticAgentDisplay.setAgentStatus(
+						agentNum,
+						task.title,
+						"working",
+						initialPhase,
+						initialModel,
+					);
+					claimedTasks.push({ task, agentNum });
 				} else {
 					logDebug(`Task "${task.title}" is already being executed, skipping...`);
 				}
@@ -193,8 +195,7 @@ export async function runParallelNoGit(
 			}
 
 			// Parallel execution with progress callback
-			const promises = claimedTasks.map((task) => {
-				const agentNum = globalAgentNum - (claimedTasks.length - claimedTasks.indexOf(task) - 1);
+			const promises = claimedTasks.map(({ task, agentNum }) => {
 				const agentOptions: AgentRunnerOptions = {
 					engine,
 					task,
@@ -243,7 +244,8 @@ export async function runParallelNoGit(
 
 			for (let i = 0; i < results.length; i++) {
 				const res = results[i];
-				const task = claimedTasks[i];
+				const claimedTask = claimedTasks[i];
+				const task = claimedTask.task;
 
 				if (res.status === "rejected") {
 					const error = res.reason;
@@ -259,7 +261,7 @@ export async function runParallelNoGit(
 							notifyTaskFailed(task.title, String(error));
 							await taskSource.markComplete(task.id);
 							clearDeferredTask(taskSource.type, task, workDir, prdFile);
-							staticAgentDisplay.agentComplete(i + 1);
+							staticAgentDisplay.agentComplete(claimedTask.agentNum);
 						} else {
 							logWarn(`Task "${task.title}" deferred (${deferrals}/${maxRetries}): ${error}`);
 							await taskStateManager.transitionState(task.id, TaskState.DEFERRED, String(error));
@@ -273,7 +275,7 @@ export async function runParallelNoGit(
 						notifyTaskFailed(task.title, String(error));
 						await taskSource.markComplete(task.id);
 						clearDeferredTask(taskSource.type, task, workDir, prdFile);
-						staticAgentDisplay.agentComplete(i + 1);
+						staticAgentDisplay.agentComplete(claimedTask.agentNum);
 					}
 					continue;
 				}

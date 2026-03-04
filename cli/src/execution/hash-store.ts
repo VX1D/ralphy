@@ -26,7 +26,7 @@ import {
 	HASH_STORE_MAX_AGE_MS,
 	MAX_FILE_SIZE_FOR_HASH,
 } from "../config/constants.ts";
-import { logDebug, logError, logWarn } from "../ui/logger.js";
+import { logDebug, logError, logWarn } from "../ui/logger.ts";
 
 const COMPRESSION_TIMEOUT_MS = 30000; // 30 second timeout for compression/decompression
 
@@ -281,7 +281,7 @@ export class FileHashStore {
 				try {
 					const data = readFileSync(this.indexPath, "utf-8");
 					// SECURITY: Validate JSON before parsing to prevent prototype pollution
-					if (data.match(/"__(proto|constructor|prototype)"__/)) {
+					if (data.match(/"(__proto__|constructor|prototype)"\s*:/)) {
 						throw new Error(
 							"Hash index file contains potentially malicious prototype pollution keys",
 						);
@@ -378,23 +378,24 @@ export class FileHashStore {
 			// Generate hash
 			const hash = await this.generateHash(filePath);
 
-			// Check if we already have this hash
-			const hashFileName = `${hash}.gz`;
-			const hashPath = join("content", hashFileName);
-			const absoluteHashPath = join(this.taskDir, hashPath);
+			const compressedHashPath = join("content", `${hash}.gz`);
+			const uncompressedHashPath = join("content", hash);
+			const absoluteCompressedPath = join(this.taskDir, compressedHashPath);
+			const absoluteUncompressedPath = join(this.taskDir, uncompressedHashPath);
 
-			const alreadyExists = existsSync(absoluteHashPath);
+			const hasCompressed = existsSync(absoluteCompressedPath);
+			const hasUncompressed = existsSync(absoluteUncompressedPath);
+			const alreadyExists = hasCompressed || hasUncompressed;
+			const shouldCompress = compress && stats.size >= compressionThreshold;
 
 			// Store content if not already present
 			if (!alreadyExists) {
-				const shouldCompress = compress && stats.size >= compressionThreshold;
-
 				if (shouldCompress) {
 					// Compress and store
-					await this.storeCompressed(absolutePath, absoluteHashPath);
+					await this.storeCompressed(absolutePath, absoluteCompressedPath);
 				} else {
 					// Store uncompressed
-					await this.storeUncompressed(absolutePath, absoluteHashPath.replace(".gz", ""));
+					await this.storeUncompressed(absolutePath, absoluteUncompressedPath);
 				}
 
 				// Store metadata
@@ -414,11 +415,17 @@ export class FileHashStore {
 			}
 
 			// Update index
+			const storedHashPath = alreadyExists
+				? hasCompressed
+					? compressedHashPath
+					: uncompressedHashPath
+				: shouldCompress
+					? compressedHashPath
+					: uncompressedHashPath;
+
 			this.index.files[filePath] = {
 				hash,
-				hashPath: alreadyExists
-					? hashPath
-					: `${hash}${compress && stats.size >= compressionThreshold ? ".gz" : ""}`,
+				hashPath: storedHashPath,
 				metadataPath: join("content", `${hash}.json`),
 			};
 			this.index.updatedAt = Date.now();
@@ -530,11 +537,15 @@ export class FileHashStore {
 		const source = createReadStream(filePath);
 		const gunzip = createGunzip();
 
-		await pipeline(source, gunzip, async function collectChunks(source: AsyncIterable<unknown>) {
-			for await (const chunk of source) {
-				chunks.push(chunk as Buffer);
-			}
-		});
+		await withTimeout(
+			pipeline(source, gunzip, async function collectChunks(stream: AsyncIterable<unknown>) {
+				for await (const chunk of stream) {
+					chunks.push(chunk as Buffer);
+				}
+			}),
+			COMPRESSION_TIMEOUT_MS,
+			"File decompression",
+		);
 
 		return Buffer.concat(chunks);
 	}

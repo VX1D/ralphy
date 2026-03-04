@@ -213,12 +213,10 @@ function acquireGlobalMergeLock(workDir: string): { release: () => void } | null
 	const lockDir = join(workDir, ".ralphy");
 	const lockFile = join(lockDir, ".global-merge.lock");
 
-	// Ensure lock directory exists
 	if (!existsSync(lockDir)) {
 		mkdirSync(lockDir, { recursive: true });
 	}
 
-	// Try to acquire lock atomically using exclusive write flag
 	try {
 		writeFileSync(lockFile, JSON.stringify({ pid: process.pid, timestamp: Date.now() }), {
 			flag: "wx",
@@ -238,17 +236,12 @@ function acquireGlobalMergeLock(workDir: string): { release: () => void } | null
 			},
 		};
 	} catch (_error) {
-		// Lock already exists - check if it's stale using atomic rename trick
 		try {
 			if (existsSync(lockFile)) {
-				// ATOMIC: Read and validate in one operation by renaming
-				// This prevents TOCTOU where two processes both see stale lock
 				const staleFile = join(lockDir, `.stale-merge-${Date.now()}.lock`);
 				try {
-					// Try to rename the lock file - if it fails, someone else acquired it
 					renameSync(lockFile, staleFile);
 
-					// We successfully renamed - we own the stale lock to clean up
 					const content = readFileSync(staleFile, "utf8");
 					let lockData: { timestamp?: number } = {};
 					try {
@@ -262,26 +255,22 @@ function acquireGlobalMergeLock(workDir: string): { release: () => void } | null
 					} catch {
 						logWarn("Global merge lock contained invalid JSON, treating as stale");
 					}
-					const age = Date.now() - (lockData.timestamp || 0);
 
+					const age = Date.now() - (lockData.timestamp || 0);
 					if (age > GLOBAL_MERGE_LOCK_TIMEOUT_MS) {
 						logWarn("Found stale global merge lock, removing and retrying...");
 						unlinkSync(staleFile);
-						// Recursively retry acquisition
 						return acquireGlobalMergeLock(workDir);
 					}
-					// Lock was valid, put it back
-					writeFileSync(lockFile, content, { flag: "wx" });
-					logDebug("Merge lock was not stale, another process acquired it");
+
+					renameSync(staleFile, lockFile);
 					return null;
-				} catch (renameErr) {
-					// Rename failed - another process acquired the lock
+				} catch {
 					logDebug("Another process acquired merge lock during stale check");
 					return null;
 				}
 			}
-		} catch (parseError) {
-			// Corrupted lock file - try to remove it atomically
+		} catch {
 			try {
 				const corruptFile = join(lockDir, `.corrupt-merge-${Date.now()}.lock`);
 				renameSync(lockFile, corruptFile);
@@ -291,6 +280,7 @@ function acquireGlobalMergeLock(workDir: string): { release: () => void } | null
 				logDebug(`Failed to recover from corrupt lock: ${recoverErr}`);
 			}
 		}
+
 		return null;
 	}
 }
@@ -395,10 +385,14 @@ export async function runParallel(
 
 	// Determine isolation mode (worktree vs sandbox)
 	let effectiveUseSandbox = useSandbox;
+	let worktreeFallbackToSandbox = false;
 	if (!effectiveUseSandbox && !canUseWorktrees(workDir)) {
 		logWarn("Worktrees unavailable in this repo; falling back to sandbox mode.");
 		effectiveUseSandbox = true;
+		worktreeFallbackToSandbox = true;
 	}
+	const effectiveNoGitParallel =
+		effectiveUseSandbox && (noGitParallel || worktreeFallbackToSandbox);
 
 	const isolationBase = effectiveUseSandbox ? getSandboxBase(workDir) : getWorktreeBase(workDir);
 	const isolationMode = effectiveUseSandbox ? "sandbox" : "worktree";
@@ -486,7 +480,7 @@ export async function runParallel(
 			}
 
 			// Use graph coloring for optimal batching when tasks have file information
-			let batch: Task[];
+			let batch: Task[] = [];
 			const plannedTasks = filteredTasks.map((t) => taskToPlannedTask(t));
 			const tasksWithFiles = plannedTasks.filter((pt) => pt.files.length > 0);
 
@@ -500,11 +494,8 @@ export async function runParallel(
 				if (batchKeys.length > 0) {
 					const firstBatch = batches.get(batchKeys[0]);
 					batch = firstBatch?.map((pt) => pt.task) || [];
-					logInfo(
-						`Graph coloring created ${batchKeys.length} batch(es), using batch 1 with ${batch.length} tasks`,
-					);
 				} else {
-					batch = tasks.slice(0, maxParallel);
+					batch = filteredTasks.slice(0, maxParallel);
 				}
 			} else {
 				batch = filteredTasks.slice(0, maxParallel);
@@ -588,7 +579,7 @@ export async function runParallel(
 						}
 					},
 					dryRun,
-					noGitParallel: effectiveUseSandbox && noGitParallel,
+					noGitParallel: effectiveNoGitParallel,
 				};
 
 				if (effectiveUseSandbox) {
