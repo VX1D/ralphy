@@ -1,6 +1,6 @@
 import { createSpinner } from "nanospinner";
 import pc from "picocolors";
-import { logDebug, logError, logInfo } from "./logger.ts";
+import { logDebug, logError, logInfo, logWarn } from "./logger.ts";
 
 export type SpinnerInstance = ReturnType<typeof createSpinner>;
 
@@ -28,7 +28,7 @@ export class ProgressSpinner {
 			this.spinner = createSpinner(this.formatText()).start();
 		} catch (_error) {
 			// Fallback: If nanospinner fails, create a simple object that won't crash
-			logError("Warning: Spinner initialization failed, using fallback mode");
+			logWarn("Spinner initialization failed, using fallback mode");
 			interface SpinnerOptions {
 				text?: string;
 			}
@@ -53,7 +53,7 @@ export class ProgressSpinner {
 				}
 			}, 1000);
 		} catch (_error) {
-			logError(`Warning: Timer initialization failed, spinner won't auto-update`);
+			logWarn("Timer initialization failed, spinner will not auto-update");
 			this.tickInterval = null;
 		}
 
@@ -73,7 +73,7 @@ export class ProgressSpinner {
 				}
 			}, 1000);
 		} catch (_error) {
-			logError("Warning: Heartbeat initialization failed");
+			logWarn("Heartbeat initialization failed");
 			this.heartbeatInterval = null;
 		}
 

@@ -29,6 +29,14 @@ function checkAnsiSupport(): void {
 
 checkAnsiSupport();
 
+function sanitizeTerminalText(value: string): string {
+	return value
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape removal
+		.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal control chars
+		.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+}
+
 function formatDuration(ms: number): string {
 	const seconds = Math.floor(ms / 1000);
 	const minutes = Math.floor(seconds / 60);
@@ -112,10 +120,11 @@ export class ProgressDisplay {
 
 	showPlanningProgress(tasks: PlanningTaskStatus[]): void {
 		if (!ansiSupported) {
-			for (const task of tasks) {
-				if (task.status === "active") {
-				} else if (task.status === "done") {
-				}
+			const active = tasks.filter((task) => task.status === "active");
+			if (active.length > 0) {
+				const first = active[0];
+				const step = first.currentStep ? ` [${first.currentStep}]` : "";
+				process.stdout.write(`Planning: ${first.title}${step}\n`);
 			}
 			return;
 		}
@@ -235,11 +244,14 @@ export class ProgressDisplay {
 		const lines: string[] = [];
 		for (const agent of activeAgents) {
 			const elapsed = formatDuration(now - agent.startTime);
-			const taskTrunc = agent.taskTitle.length > 50 ? `${agent.taskTitle.substring(0, 47)}...` : agent.taskTitle;
+			const taskTrunc =
+				agent.taskTitle.length > 50 ? `${agent.taskTitle.substring(0, 47)}...` : agent.taskTitle;
 
 			// Get the most recent step from recentSteps
 			const recentStep =
-				agent.recentSteps && agent.recentSteps.length > 0 ? agent.recentSteps[agent.recentSteps.length - 1] : null;
+				agent.recentSteps && agent.recentSteps.length > 0
+					? agent.recentSteps[agent.recentSteps.length - 1]
+					: null;
 
 			let stepDisplay = "";
 			if (recentStep) {
@@ -248,15 +260,16 @@ export class ProgressDisplay {
 				stepDisplay = "Initializing...";
 			}
 
-			const statusColor = agent.status === "completed" ? pc.green : agent.status === "failed" ? pc.red : pc.white;
+			const statusColor =
+				agent.status === "completed" ? pc.green : agent.status === "failed" ? pc.red : pc.white;
 			const statusIcon = agent.status === "completed" ? "✓" : agent.status === "failed" ? "✗" : "→";
 
-			lines.push(`${statusColor}[${statusIcon}] Agent ${agent.agentNum}: ${taskTrunc} (${elapsed})`);
+			lines.push(statusColor(`[${statusIcon}] Agent ${agent.agentNum}: ${taskTrunc} (${elapsed})`));
 			lines.push(`     ${stepDisplay}`);
 
 			// Show up to 5 previous steps
 			if (agent.recentSteps && agent.recentSteps.length > 1) {
-				const previousSteps = agent.recentSteps.slice(-6).reverse();
+				const previousSteps = agent.recentSteps.slice(0, -1).slice(-5).reverse();
 				for (const step of previousSteps) {
 					const formatted = this.formatAgentStep(step);
 					if (formatted) {
@@ -295,29 +308,49 @@ export class ProgressDisplay {
 		this.lastUpdate = now;
 	}
 
-	showBatchComplete(_batchNum: number, _totalBatches: number, _completed: number, _failed: number): void {
+	showBatchComplete(
+		_batchNum: number,
+		_totalBatches: number,
+		_completed: number,
+		_failed: number,
+	): void {
 		this.stopAll();
 	}
 
 	showSummary(completed: number, failed: number, duration: number): void {
 		this.stopAll();
 		process.stdout.write("\n");
-		process.stdout.write(`${pc.cyan("+======================================================================+")}\n`);
-		process.stdout.write(`${pc.cyan("|  SUMMARY                                                             |")}\n`);
-		process.stdout.write(`${pc.cyan("+======================================================================+")}\n`);
-		process.stdout.write(`|  Completed:   ${completed.toString().padEnd(10)}                                   |\n`);
-		process.stdout.write(`|  Failed:      ${failed.toString().padEnd(10)}                                   |\n`);
+		process.stdout.write(
+			`${pc.cyan("+======================================================================+")}\n`,
+		);
+		process.stdout.write(
+			`${pc.cyan("|  SUMMARY                                                             |")}\n`,
+		);
+		process.stdout.write(
+			`${pc.cyan("+======================================================================+")}\n`,
+		);
+		process.stdout.write(
+			`|  Completed:   ${completed.toString().padEnd(10)}                                   |\n`,
+		);
+		process.stdout.write(
+			`|  Failed:      ${failed.toString().padEnd(10)}                                   |\n`,
+		);
 		process.stdout.write(
 			`|  Duration:    ${formatDuration(duration).padEnd(10)}                                   |\n`,
 		);
-		process.stdout.write(`${pc.cyan("+======================================================================+")}\n`);
+		process.stdout.write(
+			`${pc.cyan("+======================================================================+")}\n`,
+		);
 	}
 
 	private formatAgentStep(step: string): string {
 		if (!step) return "";
+		const safeStep = sanitizeTerminalText(step);
 
 		// Pattern: "Read file: X" or "Writing: X"
-		const fileActionMatch = step.match(/^(Read|Write|Edit|Create|Delete|Analyze)\s*(?:file)?:\s*(.+)/i);
+		const fileActionMatch = safeStep.match(
+			/^(Read|Write|Edit|Create|Delete|Analyze)\s*(?:file)?:\s*(.+)/i,
+		);
 		if (fileActionMatch) {
 			const action = fileActionMatch[1].trim();
 			let file = fileActionMatch[2].trim();
@@ -328,39 +361,44 @@ export class ProgressDisplay {
 		}
 
 		// Pattern: "reward: X.YZ"
-		const rewardMatch = step.match(/^reward:\s*([0-9.]+)/i);
+		const rewardMatch = safeStep.match(/^reward:\s*([0-9.]+)/i);
 		if (rewardMatch) {
 			return `Reward: ${rewardMatch[1]}`;
 		}
 
 		// Pattern: "Thinking about X" or similar - preserve full context
-		const thinkingMatch = step.match(/^(Thinking|Analyzing|Planning)(?:\s+(?:about\s+)?)?(.+)/i);
+		const thinkingMatch = safeStep.match(/^(Thinking|Analyzing|Planning)(?:\s+(?:about\s+)?)?(.+)/i);
 		if (thinkingMatch) {
 			const action = thinkingMatch[1].trim();
 			const rest = thinkingMatch[2].trim();
 			// If original had "about" between action and rest, preserve it
-			const hadAbout = step.match(/^(Thinking|Analyzing|Planning)\s+about\s+/i);
+			const hadAbout = safeStep.match(/^(Thinking|Analyzing|Planning)\s+about\s+/i);
 			return hadAbout ? `${action} about ${rest}` : `${action} ${rest}`;
 		}
 
 		// Remove task title if it appears in common progress messages
-		const taskTitleMatch = step.match(/Task\s+ST-\d+:\s*(.+)/i);
+		const taskTitleMatch = safeStep.match(/Task\s+ST-\d+:\s*(.+)/i);
 		if (taskTitleMatch) {
 			const content = taskTitleMatch[1].trim();
 			return this.formatPlanningStep(content);
 		}
 
 		// Pattern: "for \"X\"" or similar - extract quoted content
-		const quotedMatch = step.match(/for\s+"([^"]+)"/i);
+		const quotedMatch = safeStep.match(/for\s+"([^"]+)"/i);
 		if (quotedMatch) {
 			return quotedMatch[1].trim();
 		}
 
 		// Default: truncate if too long
-		return step.length > 80 ? `${step.substring(0, 77)}...` : step;
+		return safeStep.length > 80 ? `${safeStep.substring(0, 77)}...` : safeStep;
 	}
 
 	stopAll(): void {
+		if (this.planningInterval) {
+			clearInterval(this.planningInterval);
+			this.planningInterval = null;
+		}
+		this.planningTasks = null;
 		this.taskSpinners.clear();
 		this.agentSpinners.clear();
 		this.lastLineCount = 0;
@@ -435,7 +473,7 @@ export class ProgressDisplay {
 		// or "Read file: src/index.ts"
 
 		// Trim first
-		const formatted = step.trim();
+		const formatted = sanitizeTerminalText(step).trim();
 
 		// Safety check: if it looks like JSON or a JSON fragment, don't show it here
 		if (formatted.startsWith("{") || formatted.startsWith("[")) {
@@ -466,7 +504,9 @@ export class ProgressDisplay {
 		}
 
 		// Pattern: "Read file: X" or "Writing: X"
-		const fileActionMatch = formatted.match(/^(Read|Write|Edit|Create|Delete|Analyze)\s*(?:file)?:\s*(.+)/i);
+		const fileActionMatch = formatted.match(
+			/^(Read|Write|Edit|Create|Delete|Analyze)\s*(?:file)?:\s*(.+)/i,
+		);
 		if (fileActionMatch) {
 			const action = fileActionMatch[1];
 			let file = fileActionMatch[2].trim();
@@ -483,7 +523,9 @@ export class ProgressDisplay {
 		}
 
 		// Pattern: "Thinking about X" or "Analyzing X" or "Planning X" - preserve full context
-		const thinkingMatch = formatted.match(/^(Thinking|Analyzing|Planning)(?:\s+(?:about\s+)?)?(.+)/i);
+		const thinkingMatch = formatted.match(
+			/^(Thinking|Analyzing|Planning)(?:\s+(?:about\s+)?)?(.+)/i,
+		);
 		if (thinkingMatch) {
 			const action = thinkingMatch[1].trim();
 			const rest = thinkingMatch[2].trim();
@@ -496,8 +538,11 @@ export class ProgressDisplay {
 		const taskTitleMatch = formatted.match(/Task ST-\d+:\s*(.+)/i);
 		if (taskTitleMatch) {
 			const content = taskTitleMatch[1].trim();
-			// Recursively format the extracted content
-			return this.formatPlanningStep(content);
+			if (!content || content === formatted) {
+				return "";
+			}
+			const shortContent = content.length > 60 ? `${content.substring(0, 57)}...` : content;
+			return shortContent;
 		}
 
 		// Pattern: "for \"X\"" or similar - extract quoted content
@@ -517,11 +562,11 @@ export class ProgressDisplay {
 		}
 
 		// Truncate long messages
-		if (step.length > 60) {
-			return `${step.substring(0, 57)}...`;
+		if (formatted.length > 60) {
+			return `${formatted.substring(0, 57)}...`;
 		}
 
-		return step;
+		return formatted;
 	}
 
 	clear(): void {

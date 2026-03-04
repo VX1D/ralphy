@@ -26,7 +26,7 @@ const BLOCKED_IPV6_RANGES = [
 	/^0+:0+:0+:0+:0+:0+:0+:0+$/i, // :: (all zeros)
 	/^fe80:/i, // IPv6 link-local
 	/^fc00:/i, // IPv6 unique local
-	/^fd00:/i, // IPv6 unique local (fd00::/8)
+	/^fd[0-9a-f]{2}:/i, // IPv6 unique local (fd00::/8)
 	/^::ffff:127\.\d+\.\d+\.\d+$/i, // IPv4-mapped IPv6 localhost
 	/^::ffff:10\.\d+\.\d+\.\d+$/i, // IPv4-mapped 10.0.0.0/8
 	/^::ffff:192\.168\.\d+\.\d+$/i, // IPv4-mapped 192.168.0.0/16
@@ -38,6 +38,28 @@ const BLOCKED_IPV6_RANGES = [
 const BLOCKED_HOSTS = [/^localhost$/i, /^127\.\d+\.\d+\.\d+$/, /^0\.0\.0\.0$/, /^::1$/i, /^::$/i];
 
 type SessionStatus = "completed" | "failed";
+type WebhookType = "discord" | "slack" | "custom";
+
+const DISCORD_ALLOWED_HOSTS = [
+	"discord.com",
+	"discordapp.com",
+	"discordapp.net",
+	"canary.discord.com",
+	"ptb.discord.com",
+];
+
+const SLACK_ALLOWED_HOSTS = ["hooks.slack.com", "hooks.slack-gov.com"];
+
+function isHostAllowedForWebhookType(type: WebhookType, hostname: string): boolean {
+	const host = hostname.toLowerCase();
+	if (type === "discord") {
+		return DISCORD_ALLOWED_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+	}
+	if (type === "slack") {
+		return SLACK_ALLOWED_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+	}
+	return true;
+}
 
 /**
  * Validate webhook URL for SSRF protection
@@ -56,7 +78,10 @@ function isBlockedIp(host: string): boolean {
 	return false;
 }
 
-async function validateWebhookUrl(url: string): Promise<{ valid: boolean; error?: string }> {
+async function validateWebhookUrl(
+	url: string,
+	type: WebhookType,
+): Promise<{ valid: boolean; error?: string; resolvedAddresses?: string[] }> {
 	try {
 		const parsed = new URL(url);
 
@@ -71,6 +96,13 @@ async function validateWebhookUrl(url: string): Promise<{ valid: boolean; error?
 
 		// Check for blocked hostnames
 		const hostname = parsed.hostname.toLowerCase();
+		if (!isHostAllowedForWebhookType(type, hostname)) {
+			return {
+				valid: false,
+				error: `Webhook hostname '${hostname}' is not allowed for ${type} webhooks`,
+			};
+		}
+
 		for (const pattern of BLOCKED_HOSTS) {
 			if (pattern.test(hostname)) {
 				return { valid: false, error: `Webhook URL hostname '${hostname}' is not allowed` };
@@ -109,7 +141,7 @@ async function validateWebhookUrl(url: string): Promise<{ valid: boolean; error?
 			}
 		}
 
-		return { valid: true };
+		return { valid: true, resolvedAddresses: resolved.map((entry) => entry.address) };
 	} catch (error) {
 		return {
 			valid: false,
@@ -118,7 +150,7 @@ async function validateWebhookUrl(url: string): Promise<{ valid: boolean; error?
 	}
 }
 
-async function assertDnsStillSafe(webhookUrl: string): Promise<void> {
+async function assertDnsStillSafe(webhookUrl: string, expectedAddresses?: string[]): Promise<void> {
 	const hostname = new URL(webhookUrl).hostname.toLowerCase();
 	const resolved = await lookup(hostname, { all: true, verbatim: true });
 	if (resolved.length === 0) {
@@ -127,6 +159,14 @@ async function assertDnsStillSafe(webhookUrl: string): Promise<void> {
 	for (const entry of resolved) {
 		if (isBlockedIp(entry.address)) {
 			throw new Error(`Webhook hostname '${hostname}' resolved to blocked IP '${entry.address}'`);
+		}
+	}
+
+	if (expectedAddresses && expectedAddresses.length > 0) {
+		const expected = new Set(expectedAddresses);
+		const overlap = resolved.some((entry) => expected.has(entry.address));
+		if (!overlap) {
+			throw new Error(`Webhook hostname '${hostname}' resolved to unexpected addresses`);
 		}
 	}
 }
@@ -192,6 +232,7 @@ async function sendDiscordNotification(
 	webhookUrl: string,
 	status: SessionStatus,
 	result?: NotificationResult,
+	validatedAddresses?: string[],
 ): Promise<void> {
 	const isSuccess = status === "completed";
 	const total = result ? result.tasksCompleted + result.tasksFailed : 0;
@@ -209,7 +250,7 @@ async function sendDiscordNotification(
 	};
 
 	await retryWithBackoff(async () => {
-		await assertDnsStillSafe(webhookUrl);
+		await assertDnsStillSafe(webhookUrl, validatedAddresses);
 
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
@@ -219,6 +260,7 @@ async function sendDiscordNotification(
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ embeds: [embed] }),
+				redirect: "error",
 				signal: controller.signal,
 			});
 
@@ -239,11 +281,12 @@ async function sendSlackNotification(
 	webhookUrl: string,
 	status: SessionStatus,
 	result?: NotificationResult,
+	validatedAddresses?: string[],
 ): Promise<void> {
 	const message = buildMessage(status, result);
 
 	await retryWithBackoff(async () => {
-		await assertDnsStillSafe(webhookUrl);
+		await assertDnsStillSafe(webhookUrl, validatedAddresses);
 
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
@@ -253,6 +296,7 @@ async function sendSlackNotification(
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ text: message }),
+				redirect: "error",
 				signal: controller.signal,
 			});
 
@@ -273,11 +317,12 @@ async function sendCustomNotification(
 	webhookUrl: string,
 	status: SessionStatus,
 	result?: NotificationResult,
+	validatedAddresses?: string[],
 ): Promise<void> {
 	const message = buildMessage(status, result);
 
 	await retryWithBackoff(async () => {
-		await assertDnsStillSafe(webhookUrl);
+		await assertDnsStillSafe(webhookUrl, validatedAddresses);
 
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
@@ -293,6 +338,7 @@ async function sendCustomNotification(
 					tasks_completed: result?.tasksCompleted ?? 0,
 					tasks_failed: result?.tasksFailed ?? 0,
 				}),
+				redirect: "error",
 				signal: controller.signal,
 			});
 
@@ -323,12 +369,17 @@ export async function sendNotifications(
 	const tasks: Promise<void>[] = [];
 
 	if (discord_webhook && discord_webhook.trim() !== "") {
-		const validation = await validateWebhookUrl(discord_webhook);
+		const validation = await validateWebhookUrl(discord_webhook, "discord");
 		if (!validation.valid) {
 			logWarn(`Discord webhook validation failed: ${validation.error}`);
 		} else {
 			tasks.push(
-				sendDiscordNotification(discord_webhook, status, result).catch((err) => {
+				sendDiscordNotification(
+					discord_webhook,
+					status,
+					result,
+					validation.resolvedAddresses,
+				).catch((err) => {
 					logError(`Discord notification failed: ${err.message}`);
 				}),
 			);
@@ -336,27 +387,31 @@ export async function sendNotifications(
 	}
 
 	if (slack_webhook && slack_webhook.trim() !== "") {
-		const validation = await validateWebhookUrl(slack_webhook);
+		const validation = await validateWebhookUrl(slack_webhook, "slack");
 		if (!validation.valid) {
 			logWarn(`Slack webhook validation failed: ${validation.error}`);
 		} else {
 			tasks.push(
-				sendSlackNotification(slack_webhook, status, result).catch((err) => {
+				sendSlackNotification(slack_webhook, status, result, validation.resolvedAddresses).catch(
+					(err) => {
 					logError(`Slack notification failed: ${err.message}`);
-				}),
+					},
+				),
 			);
 		}
 	}
 
 	if (custom_webhook && custom_webhook.trim() !== "") {
-		const validation = await validateWebhookUrl(custom_webhook);
+		const validation = await validateWebhookUrl(custom_webhook, "custom");
 		if (!validation.valid) {
 			logWarn(`Custom webhook validation failed: ${validation.error}`);
 		} else {
 			tasks.push(
-				sendCustomNotification(custom_webhook, status, result).catch((err) => {
+				sendCustomNotification(custom_webhook, status, result, validation.resolvedAddresses).catch(
+					(err) => {
 					logError(`Custom webhook notification failed: ${err.message}`);
-				}),
+					},
+				),
 			);
 		}
 	}

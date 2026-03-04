@@ -56,10 +56,10 @@ export async function runTask(task: string, options: RuntimeOptions): Promise<vo
 	// Execute with spinner
 	const spinner = new ProgressSpinner(task, activeSettings);
 
-	if (options.dryRun && !options.debugOpenCode) {
+	if (options.dryRun) {
 		spinner.success("(dry run) Would execute task");
-		logInfo("\nPrompt:");
-		logInfo(prompt);
+		logInfo("\nPrompt preview hidden in dry-run to avoid leaking sensitive content.");
+		logInfo(`Prompt length: ${prompt.length} chars`);
 		return;
 	}
 

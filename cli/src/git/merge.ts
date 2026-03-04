@@ -133,13 +133,6 @@ export async function createIntegrationBranch(
 	// Create and checkout new branch from base
 	await git.checkoutLocalBranch(branchName);
 
-	// Set up tracking if remote exists
-	const remotes = await git.getRemotes();
-	if (remotes.some((r) => r.name === "origin")) {
-		// Just locally is fine for now, parallel agents work in local worktrees
-		// Pushing happens later if needed
-	}
-
 	return branchName;
 }
 

@@ -26,17 +26,22 @@ export async function createTaskBranch(
 	// Stash any changes
 	let stashed = false;
 	const status = await git.status();
-	if (status.files.length > 0) {
-		await git.stash(["push", "-m", "ralphy-autostash"]);
+	if (status.files.length > 0 || status.not_added.length > 0) {
+		await git.stash(["push", "-u", "-m", "ralphy-autostash"]);
 		stashed = true;
 	}
 
 	try {
 		// Checkout base branch and pull
 		await git.checkout(baseBranch);
-		const pullResult = await git.pull("origin", baseBranch);
-		if (pullResult.summary.changes > 0 || pullResult.summary.deletions > 0) {
-			logDebug(`Pulled changes to ${baseBranch}`);
+		const remotes = await git.getRemotes(true);
+		if (remotes.some((remote) => remote.name === "origin")) {
+			const pullResult = await git.pull("origin", baseBranch);
+			if (pullResult.summary.changes > 0 || pullResult.summary.deletions > 0) {
+				logDebug(`Pulled changes to ${baseBranch}`);
+			}
+		} else {
+			logDebug("Remote 'origin' not configured, skipping pull");
 		}
 
 		// Create new branch (or checkout if exists)
