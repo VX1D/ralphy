@@ -22,10 +22,11 @@ export function hasPrototypePollution(obj: unknown): boolean {
 
 	const visited = new Set<unknown>();
 	const queue: Array<{ value: unknown; depth: number }> = [{ value: obj, depth: 0 }];
+	let head = 0;
 	let nodesVisited = 0;
 
-	while (queue.length > 0) {
-		const current = queue.shift();
+	while (head < queue.length) {
+		const current = queue[head++];
 		if (!current) continue;
 
 		nodesVisited++;

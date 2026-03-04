@@ -1,4 +1,4 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import pc from "picocolors";
 import { sanitizeSecrets } from "../utils/sanitization.ts";
@@ -9,22 +9,19 @@ const loggerState = {
 	debugMode: false,
 };
 
-// Allowed log directory - logs can only be written here
-const ALLOWED_LOG_DIR = "logs";
-
 /**
  * Validate log file path to prevent path traversal attacks
  */
 function validateLogPath(filePath: string): string {
-	const resolved = path.resolve(filePath);
-	const allowedDir = path.resolve(process.cwd(), ALLOWED_LOG_DIR);
-	const relative = path.relative(allowedDir, resolved);
-
-	if (relative.startsWith("..") || path.isAbsolute(relative)) {
-		throw new Error(`Invalid log file path: ${filePath} must be within ${ALLOWED_LOG_DIR}`);
+	if (!filePath || typeof filePath !== "string") {
+		throw new Error("Invalid log file path");
 	}
-
-	return resolved;
+	if (filePath.includes("\0")) {
+		throw new Error("Invalid log file path: null byte detected");
+	}
+	return path.isAbsolute(filePath)
+		? path.normalize(filePath)
+		: path.resolve(process.cwd(), filePath);
 }
 
 /**
@@ -103,30 +100,28 @@ class ConsoleLogSink implements LogSink {
 			console.error("[Logger] Invalid log entry");
 			return;
 		}
-		const timestamp = entry.timestamp ?? new Date().toISOString();
 		const level = entry.level ?? "info";
-		const component = entry.component ?? "ralphy";
 		const message = entry.message ?? "";
-		const prefix = `[${timestamp}] [${level.toUpperCase()}]`;
+		const prefix = `[${level.toUpperCase()}]`;
 
 		switch (level) {
 			case "error":
-				console.error(pc.red(`${prefix} ${component ? `[${component}] ` : ""}${message}`));
+				console.error(pc.red(`${prefix} ${message}`));
 				break;
 			case "warn":
-				console.warn(pc.yellow(`${prefix} ${component ? `[${component}] ` : ""}${message}`));
+				console.warn(pc.yellow(`${prefix} ${message}`));
 				break;
 			case "success":
-				console.log(pc.green(`${prefix} ${component ? `[${component}] ` : ""}${message}`));
+				console.log(pc.green(`${prefix} ${message}`));
 				break;
 			case "info":
-				console.log(pc.blue(`${prefix} ${component ? `[${component}] ` : ""}${message}`));
+				console.log(pc.blue(`${prefix} ${message}`));
 				break;
 			case "debug":
-				console.log(pc.gray(`${prefix} ${component ? `[${component}] ` : ""}${message}`));
+				console.log(pc.gray(`${prefix} ${message}`));
 				break;
 			default:
-				console.log(`${prefix} ${component ? `[${component}] ` : ""}${message}`);
+				console.log(`${prefix} ${message}`);
 		}
 	}
 }
@@ -264,6 +259,7 @@ export class JsonFileLogSink implements LogSink {
 	constructor(filePath: string, options?: { flushIntervalMs?: number; maxBufferSize?: number }) {
 		// Validate path to prevent path traversal attacks
 		this.filePath = validateLogPath(filePath);
+		mkdirSync(path.dirname(this.filePath), { recursive: true });
 		this.flushInterval = options?.flushIntervalMs ?? 1000;
 		this.maxBufferSize = options?.maxBufferSize ?? 100;
 

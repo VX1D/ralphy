@@ -32,6 +32,7 @@ export function sanitizeSecrets(input: string): string {
 	// Patterns are designed to match specific token formats with fixed lengths
 	const patterns = [
 		{ regex: /sk-[a-zA-Z0-9]{48}/g, replacement: "[API_KEY_REDACTED]" },
+		{ regex: /sk-ant-[a-zA-Z0-9_-]{16,256}/g, replacement: "[ANTHROPIC_KEY_REDACTED]" },
 		{ regex: /ghp_[a-zA-Z0-9]{36}/g, replacement: "[GITHUB_TOKEN_REDACTED]" },
 		{ regex: /gho_[a-zA-Z0-9]{52}/g, replacement: "[GITHUB_OAUTH_REDACTED]" },
 		{ regex: /AKIA[0-9A-Z]{16}/g, replacement: "[AWS_KEY_REDACTED]" },

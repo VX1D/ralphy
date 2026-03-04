@@ -209,18 +209,9 @@ export function allSkillsToCsv(skillDirs: string[]): string {
 	for (const dir of skillDirs) {
 		const csv = skillsToCsv(dir);
 		if (csv) {
-			// Skip header, add data rows
-			const lines = csv.split("\n");
-			for (let i = 1; i < lines.length; i++) {
-				const line = lines[i].trim();
-				if (line) {
-					// Use proper CSV parser to handle quoted values and commas
-					const parsedRows = parseCSV(line);
-					// parseCSV returns array of rows, we just want the first (current) row
-					if (parsedRows.length > 0) {
-						allRows.push(parsedRows[0]);
-					}
-				}
+			const parsedRows = parseCSV(csv);
+			for (let i = 1; i < parsedRows.length; i++) {
+				allRows.push(parsedRows[i]);
 			}
 		}
 	}

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { extname } from "node:path";
 import pc from "picocolors";
 import { jsonToCsv, mdToCsv, yamlToCsv } from "../../tasks/converter.ts";
+import { parseCSV } from "../../tasks/csv.ts";
 import { logError, logInfo, logSuccess } from "../../ui/logger.ts";
 
 /**
@@ -52,7 +53,7 @@ export async function runConvert(options: {
 	}
 
 	// Count tasks
-	const taskCount = csvContent.split("\n").length - 1; // Subtract header
+	const taskCount = Math.max(0, parseCSV(csvContent).length - 1);
 
 	writeFileSync(to, csvContent, "utf-8");
 

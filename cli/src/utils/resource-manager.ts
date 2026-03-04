@@ -334,7 +334,9 @@ export class ResourceManager {
 		const stats = this.getStats();
 		if (stats.totalDiskUsage > this.maxMemoryUsage) {
 			// Clean up oldest resources first
-			this.cleanup({ maxAge: 10 * 60 * 1000 }); // 10 minutes
+			void this.cleanup({ maxAge: 10 * 60 * 1000 }).catch((err) => {
+				console.error("Memory-triggered cleanup failed:", err);
+			}); // 10 minutes
 		}
 	}
 
