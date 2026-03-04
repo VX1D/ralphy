@@ -9,6 +9,7 @@ const GITHUB_TOKEN_PATTERNS = [
 	/^ghp_[A-Za-z0-9]{36}$/, // Classic PAT
 	/^github_pat_[A-Za-z0-9_]{82}$/, // Fine-grained PAT
 	/^gho_[A-Za-z0-9]{52}$/, // OAuth token
+	/^ghs_[A-Za-z0-9]{36}$/, // GitHub App installation token
 ];
 
 /**
@@ -49,7 +50,7 @@ export class GitHubTaskSource implements TaskSource {
 
 		if (!validateGitHubToken(token)) {
 			throw new Error(
-				"GITHUB_TOKEN has invalid format. Expected: ghp_***, github_pat_***, or gho_***",
+				"GITHUB_TOKEN has invalid format. Expected: ghp_***, github_pat_***, gho_***, or ghs_***",
 			);
 		}
 

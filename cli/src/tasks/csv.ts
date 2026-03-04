@@ -60,7 +60,7 @@ function sanitizeCsvCell(value: string): string {
  * Escape a value for CSV output
  * Handles commas, quotes, newlines, and carriage returns
  */
-function escapeCSV(value: string): string {
+export function escapeCsvValue(value: string): string {
 	// Defensive: ensure value is a string
 	if (value === null || value === undefined) {
 		return "";
@@ -77,8 +77,8 @@ function escapeCSV(value: string): string {
 /**
  * Convert rows to CSV string
  */
-function toCSV(rows: string[][]): string {
-	return rows.map((row) => row.map(escapeCSV).join(",")).join("\n");
+export function rowsToCsv(rows: string[][]): string {
+	return rows.map((row) => row.map(escapeCsvValue).join(",")).join("\n");
 }
 
 interface CsvTask {
@@ -125,9 +125,15 @@ export class CsvTaskSource implements TaskSource {
 	private writeFile(tasks: CsvTask[]): void {
 		const rows: string[][] = [["id", "title", "done", "group", "desc"]];
 		for (const task of tasks) {
-			rows.push([task.id, task.title, task.completed ? "1" : "0", String(task.parallelGroup), task.description]);
+			rows.push([
+				task.id,
+				task.title,
+				task.completed ? "1" : "0",
+				String(task.parallelGroup),
+				task.description,
+			]);
 		}
-		writeFileSync(this.filePath, toCSV(rows), "utf-8");
+		writeFileSync(this.filePath, rowsToCsv(rows), "utf-8");
 	}
 
 	async getAllTasks(): Promise<Task[]> {
@@ -195,5 +201,5 @@ export function tasksToCompactCsv(tasks: Task[]): string {
 		const t = tasks[i];
 		rows.push([String(i + 1), t.title, t.parallelGroup ? String(t.parallelGroup) : "0"]);
 	}
-	return toCSV(rows);
+	return rowsToCsv(rows);
 }

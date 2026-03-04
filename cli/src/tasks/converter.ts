@@ -1,39 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
-import { parseCSV } from "./csv.ts";
-
-function sanitizeCsvCell(value: string): string {
-	if (/^[=+\-@]/.test(value)) {
-		return `'${value}`;
-	}
-	return value;
-}
-
-/**
- * Escape a value for CSV output
- * Handles commas, quotes, newlines, and carriage returns
- */
-function escapeCSV(value: string): string {
-	// Defensive: ensure value is a string
-	if (value === null || value === undefined) {
-		return "";
-	}
-	const strValue = String(value);
-	const safeValue = sanitizeCsvCell(strValue);
-	// Escape if contains special characters: comma, quote, newline, or carriage return
-	if (/[",\n\r]/.test(safeValue)) {
-		return `"${safeValue.replace(/"/g, '""')}"`;
-	}
-	return safeValue;
-}
-
-/**
- * Convert rows to CSV string
- */
-function toCSV(rows: string[][]): string {
-	return rows.map((row) => row.map(escapeCSV).join(",")).join("\n");
-}
+import { parseCSV, rowsToCsv } from "./csv.ts";
+import { hasPrototypePollution } from "./yaml.ts";
 
 /**
  * Truncate description to save tokens
@@ -61,6 +30,9 @@ interface YamlTaskFile {
  */
 export function yamlToCsv(yamlContent: string): string {
 	const data = YAML.parse(yamlContent) as YamlTaskFile;
+	if (hasPrototypePollution(data)) {
+		throw new Error("YAML contains disallowed prototype pollution keys");
+	}
 	const tasks = data.tasks || [];
 
 	const rows: string[][] = [["id", "title", "done", "group", "desc"]];
@@ -74,7 +46,7 @@ export function yamlToCsv(yamlContent: string): string {
 			truncateDesc(t.description),
 		]);
 	}
-	return toCSV(rows);
+	return rowsToCsv(rows);
 }
 
 /**
@@ -102,7 +74,7 @@ export function mdToCsv(mdContent: string): string {
 		}
 	}
 
-	return toCSV(rows);
+	return rowsToCsv(rows);
 }
 
 interface JsonTask {
@@ -125,7 +97,9 @@ export function jsonToCsv(jsonContent: string): string {
 	} catch {
 		return "id,title,done,group,desc\n";
 	}
-	const tasks: JsonTask[] = Array.isArray(data) ? data : (data as { tasks?: JsonTask[] })?.tasks || [];
+	const tasks: JsonTask[] = Array.isArray(data)
+		? data
+		: (data as { tasks?: JsonTask[] })?.tasks || [];
 
 	const rows: string[][] = [["id", "title", "done", "group", "desc"]];
 	for (let i = 0; i < tasks.length; i++) {
@@ -138,7 +112,7 @@ export function jsonToCsv(jsonContent: string): string {
 			truncateDesc(t.description || t.body),
 		]);
 	}
-	return toCSV(rows);
+	return rowsToCsv(rows);
 }
 
 interface SkillFrontmatter {
@@ -149,7 +123,9 @@ interface SkillFrontmatter {
 /**
  * Parse SKILL.md file with YAML frontmatter
  */
-function parseSkillFile(filePath: string): { name: string; description: string; content: string } | null {
+function parseSkillFile(
+	filePath: string,
+): { name: string; description: string; content: string } | null {
 	try {
 		const content = readFileSync(filePath, "utf-8");
 		const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
@@ -221,7 +197,7 @@ export function skillsToCsv(skillDir: string): string {
 	for (const s of skills) {
 		rows.push([s.name, s.desc, s.content]);
 	}
-	return toCSV(rows);
+	return rowsToCsv(rows);
 }
 
 /**
@@ -250,5 +226,5 @@ export function allSkillsToCsv(skillDirs: string[]): string {
 	}
 
 	if (allRows.length <= 1) return "";
-	return toCSV(allRows);
+	return rowsToCsv(allRows);
 }

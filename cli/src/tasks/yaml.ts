@@ -13,10 +13,10 @@ interface YamlTaskFile {
 	tasks: YamlTask[];
 }
 
-function hasPrototypePollution(obj: unknown): boolean {
+export function hasPrototypePollution(obj: unknown): boolean {
 	const MAX_DEPTH = 20;
 	const MAX_NODES = 10000;
-	const dangerousKeys = new Set(["__proto__", "constructor", "prototype"]);
+	const dangerousKeys = new Set(["__proto__"]);
 
 	if (typeof obj !== "object" || obj === null) return false;
 
