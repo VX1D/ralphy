@@ -130,7 +130,9 @@ export class ResourceManager {
 			const contentSize =
 				typeof content === "string" ? Buffer.byteLength(content, "utf-8") : content.length;
 			if (contentSize > this.maxTempFileSize) {
-				throw new ResourceError(`Temp file size exceeds limit: ${contentSize} > ${this.maxTempFileSize}`);
+				throw new ResourceError(
+					`Temp file size exceeds limit: ${contentSize} > ${this.maxTempFileSize}`,
+				);
 			}
 
 			writeFileSync(tempFile, content);
@@ -286,9 +288,13 @@ export class ResourceManager {
 		const filesTracked = resources.filter((r) => r.type === "file").length;
 		const processesTracked = resources.filter((r) => r.type === "process").length;
 		const tempDirectories = resources.filter((r) => r.type === "directory").length;
-		const totalDiskUsage = resources.filter((r) => r.size).reduce((sum, r) => sum + (r.size ?? 0), 0);
+		const totalDiskUsage = resources
+			.filter((r) => r.size)
+			.reduce((sum, r) => sum + (r.size ?? 0), 0);
 		const oldestResource =
-			resources.length > 0 ? new Date(Math.min(...resources.map((r) => r.created.getTime()))) : null;
+			resources.length > 0
+				? new Date(Math.min(...resources.map((r) => r.created.getTime())))
+				: null;
 
 		return {
 			totalResources: resources.length,
@@ -335,7 +341,9 @@ export class ResourceManager {
 		const stats = this.getStats();
 		if (stats.totalDiskUsage > this.maxMemoryUsage) {
 			// Clean up oldest resources first
-			this.cleanup({ maxAge: 10 * 60 * 1000 }); // 10 minutes
+			void this.cleanup({ maxAge: 10 * 60 * 1000 }).catch((err) => {
+				console.error("Memory-triggered cleanup failed:", err);
+			}); // 10 minutes
 		}
 	}
 

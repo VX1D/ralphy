@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import YAML from "yaml";
+import { logWarn } from "../ui/logger.ts";
 import { detectProject } from "./detector.ts";
 import { getConfigPath, getProgressPath, getRalphyDir } from "./loader.ts";
 import type { RalphyConfig } from "./types.ts";
@@ -134,5 +135,7 @@ export function logTaskProgress(
 	const icon = status === "completed" ? "✓" : "✗";
 	const line = `- [${icon}] ${timestamp} - ${task}\n`;
 
-	void appendFile(progressPath, line, "utf-8");
+	void appendFile(progressPath, line, "utf-8").catch((error) => {
+		logWarn(`Failed to append task progress: ${error}`);
+	});
 }

@@ -157,9 +157,19 @@ export function getLogSink(): LogSink {
  * Sanitizes secrets from logged data
  */
 function createLogEntry(level: LogLevel, component: string | undefined, args: unknown[]): LogEntry {
-	const rawMessage = args
-		.map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
-		.join(" ");
+	const safeSerialize = (arg: unknown): string => {
+		if (typeof arg === "string") {
+			return arg;
+		}
+
+		try {
+			return JSON.stringify(arg);
+		} catch {
+			return String(arg);
+		}
+	};
+
+	const rawMessage = args.map((arg) => safeSerialize(arg)).join(" ");
 	// Sanitize secrets from the message
 	const message = sanitizeSecrets(rawMessage);
 

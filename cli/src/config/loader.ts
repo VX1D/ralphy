@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
 import { validateCommand } from "../engines/validation.ts";
-import { logDebug, logWarn } from "../ui/logger.ts";
+import { logDebug, logError, logWarn } from "../ui/logger.ts";
 import { type RalphyConfig, RalphyConfigSchema } from "./types.ts";
 
 export const RALPHY_DIR = ".ralphy";
@@ -107,9 +107,13 @@ export function loadConfig(workDir = process.cwd()): RalphyConfig | null {
 		return RalphyConfigSchema.parse(parsed);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		if (message.includes("too complex") || message.includes("nesting exceeds")) {
-			logWarn(`Config security limits exceeded at ${configPath}: ${message}. Falling back to defaults.`);
-			return RalphyConfigSchema.parse({});
+		const isSecurityError =
+			message.includes("too complex") ||
+			message.includes("nesting exceeds") ||
+			message.includes("prototype pollution");
+		if (isSecurityError) {
+			logError(`Config security violation at ${configPath}: ${message}. Refusing to load config.`);
+			return null;
 		}
 
 		logWarn(`Invalid config file at ${configPath}: ${message}. Falling back to defaults.`);
