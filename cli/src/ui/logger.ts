@@ -7,6 +7,7 @@ import { sanitizeSecrets } from "../utils/sanitization.ts";
 const loggerState = {
 	verboseMode: false,
 	debugMode: false,
+	explicitVerbose: false,
 };
 
 // Allowed log directory - logs can only be written here
@@ -46,6 +47,7 @@ export function isDebug(): boolean {
  */
 export function setVerbose(verbose: boolean): void {
 	loggerState.verboseMode = verbose;
+	loggerState.explicitVerbose = true;
 	verboseMode = loggerState.verboseMode;
 }
 
@@ -56,6 +58,8 @@ export function setDebug(debug: boolean): void {
 	loggerState.debugMode = debug;
 	if (debug) {
 		loggerState.verboseMode = true;
+	} else if (!loggerState.explicitVerbose) {
+		loggerState.verboseMode = false;
 	}
 	verboseMode = loggerState.verboseMode;
 }

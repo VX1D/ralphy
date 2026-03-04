@@ -127,7 +127,8 @@ export class ResourceManager {
 
 		try {
 			// Check file size limits
-			const contentSize = typeof content === "string" ? content.length : content.length;
+			const contentSize =
+				typeof content === "string" ? Buffer.byteLength(content, "utf-8") : content.length;
 			if (contentSize > this.maxTempFileSize) {
 				throw new ResourceError(`Temp file size exceeds limit: ${contentSize} > ${this.maxTempFileSize}`);
 			}

@@ -1,4 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFile } from "node:fs/promises";
 import YAML from "yaml";
 import { detectProject } from "./detector.ts";
 import { getConfigPath, getProgressPath, getRalphyDir } from "./loader.ts";
@@ -133,5 +134,5 @@ export function logTaskProgress(
 	const icon = status === "completed" ? "✓" : "✗";
 	const line = `- [${icon}] ${timestamp} - ${task}\n`;
 
-	appendFileSync(progressPath, line, "utf-8");
+	void appendFile(progressPath, line, "utf-8");
 }

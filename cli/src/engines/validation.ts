@@ -112,7 +112,7 @@ export function validateArgs(args: string[]): string[] | null {
 	}
 
 	const dangerousPatterns = [
-		/[;&|`]/, // Shell metacharacters
+		/[;&|`$]/, // Shell metacharacters (including bare $ for variable expansion)
 		/\$\{/, // Variable expansion
 		/\$\(/, // Command substitution
 		/`/, // Backtick substitution

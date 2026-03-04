@@ -106,8 +106,14 @@ export function loadConfig(workDir = process.cwd()): RalphyConfig | null {
 
 		return RalphyConfigSchema.parse(parsed);
 	} catch (error) {
-		logWarn(`Invalid config file at ${configPath}: ${error}. Falling back to defaults.`);
-		logDebug(`Config parse details: ${error}`);
+		const message = error instanceof Error ? error.message : String(error);
+		if (message.includes("too complex") || message.includes("nesting exceeds")) {
+			logWarn(`Config security limits exceeded at ${configPath}: ${message}. Falling back to defaults.`);
+			return RalphyConfigSchema.parse({});
+		}
+
+		logWarn(`Invalid config file at ${configPath}: ${message}. Falling back to defaults.`);
+		logDebug(`Config parse stack: ${error instanceof Error ? error.stack || message : message}`);
 		return RalphyConfigSchema.parse({});
 	}
 }
