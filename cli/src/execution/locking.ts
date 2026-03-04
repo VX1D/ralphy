@@ -97,10 +97,18 @@ function cleanupStaleLockFiles(workDir: string): void {
 			const content = readFileSync(filePath, "utf8");
 			const lockInfo: LockInfo = JSON.parse(content);
 			if (now - lockInfo.timestamp >= lockInfo.timeout) {
-				unlinkSync(filePath);
+				try {
+					unlinkSync(filePath);
+				} catch {
+					// Best-effort cleanup: lock may be removed by another process.
+				}
 			}
 		} catch {
-			unlinkSync(filePath);
+			try {
+				unlinkSync(filePath);
+			} catch {
+				// Best-effort cleanup: lock may be removed by another process.
+			}
 		}
 	}
 }
