@@ -27,7 +27,7 @@ import { notifyTaskComplete, notifyTaskFailed } from "../ui/notify.ts";
 import { StaticAgentDisplay } from "../ui/static-agent-display.ts";
 import { type AgentRunnerOptions, runAgentInSandbox, runAgentInWorktree } from "./agent-runner.ts";
 import { resolveConflictsWithAI } from "./conflict-resolution.ts";
-import { clearDeferredTask } from "./deferred.ts";
+import { clearDeferredTask, recordDeferredTask } from "./deferred.ts";
 import {
 	type PlannedTask,
 	batchByColor,
@@ -151,7 +151,7 @@ function untrackWorktree(wd: string, worktreeDir: string): void {
 /**
  * Cleanup orphaned worktrees from previous runs
  */
-function cleanupOrphanedWorktrees(wd: string): void {
+async function cleanupOrphanedWorktrees(wd: string): Promise<void> {
 	const trackingFile = join(wd, WORKTREE_TRACKING_FILE);
 	if (!existsSync(trackingFile)) return;
 
@@ -178,14 +178,15 @@ function cleanupOrphanedWorktrees(wd: string): void {
 				logDebug(`Process ${entry.pid} not running, cleaning worktree`);
 				// Process dead - clean up stale worktree
 				try {
-					if (existsSync(entry.worktreeDir)) {
-						rmSync(entry.worktreeDir, { recursive: true, force: true });
-					}
-					// Also try to remove via git
 					const git = simpleGit(wd);
-					git.raw(["worktree", "remove", "-f", entry.worktreeDir]).catch((gitErr) => {
+					try {
+						await git.raw(["worktree", "remove", "-f", entry.worktreeDir]);
+					} catch (gitErr) {
 						logDebug(`Git worktree remove failed: ${gitErr}`);
-					});
+						if (existsSync(entry.worktreeDir)) {
+							rmSync(entry.worktreeDir, { recursive: true, force: true });
+						}
+					}
 					cleaned++;
 				} catch (cleanupErr) {
 					logDebug(`Failed to cleanup worktree ${entry.worktreeDir}: ${cleanupErr}`);
@@ -264,6 +265,9 @@ function acquireGlobalMergeLock(workDir: string): { release: () => void } | null
 					}
 
 					renameSync(staleFile, lockFile);
+					if (existsSync(staleFile)) {
+						unlinkSync(staleFile);
+					}
 					return null;
 				} catch {
 					logDebug("Another process acquired merge lock during stale check");
@@ -361,7 +365,7 @@ export async function runParallel(
 	};
 
 	// Cleanup orphaned worktrees from previous runs
-	cleanupOrphanedWorktrees(workDir);
+	await cleanupOrphanedWorktrees(workDir);
 
 	// Initialize task state manager if not provided
 	let taskStateManager: TaskStateManager;
@@ -481,7 +485,7 @@ export async function runParallel(
 
 			// Use graph coloring for optimal batching when tasks have file information
 			let batch: Task[] = [];
-			const plannedTasks = filteredTasks.map((t) => taskToPlannedTask(t));
+			const plannedTasks = filteredTasks.map((t) => taskToPlannedTask(t, t.body || ""));
 			const tasksWithFiles = plannedTasks.filter((pt) => pt.files.length > 0);
 
 			if (tasksWithFiles.length === filteredTasks.length && tasksWithFiles.length > 1) {
@@ -695,9 +699,22 @@ export async function runParallel(
 				if (finalFailureReason) {
 					const retryable = isRetryableError(finalFailureReason);
 					if (retryable) {
+						const deferrals = recordDeferredTask(taskSource.type, task, workDir, prdFile);
 						sawRetryableFailure = true;
-						logWarn(`Task "${task.title}" encountered retryable error: ${finalFailureReason}`);
-						await taskStateManager.transitionState(task.id, TaskState.DEFERRED, finalFailureReason);
+						if (deferrals >= maxRetries) {
+							logError(`Task "${task.title}" failed after ${deferrals} deferrals: ${finalFailureReason}`);
+							await taskStateManager.transitionState(task.id, TaskState.FAILED, finalFailureReason);
+							logTaskProgress(task.title, "failed", workDir);
+							result.tasksFailed++;
+							notifyTaskFailed(task.title, finalFailureReason);
+							await taskSource.markComplete(task.id);
+							clearDeferredTask(taskSource.type, task, workDir, prdFile);
+						} else {
+							logWarn(
+								`Task "${task.title}" deferred (${deferrals}/${maxRetries}): ${finalFailureReason}`,
+							);
+							await taskStateManager.transitionState(task.id, TaskState.DEFERRED, finalFailureReason);
+						}
 					} else {
 						logError(`Task "${task.title}" failed: ${finalFailureReason}`);
 						await taskStateManager.transitionState(task.id, TaskState.FAILED, finalFailureReason);

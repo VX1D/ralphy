@@ -45,7 +45,6 @@ class GitMutex {
 
 	private processNext(): void {
 		if (this.active || this.queue.length === 0) {
-			this.active = false;
 			return;
 		}
 

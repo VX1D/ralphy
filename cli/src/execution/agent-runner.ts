@@ -412,42 +412,6 @@ export async function runAgentInSandbox(
 
 		const result = await runAgent(sandboxDir, options);
 
-		// NEW: Sync changes back to original directory
-		try {
-			const modifiedFiles = await getModifiedFiles(sandboxDir, originalDir);
-
-			if (modifiedFiles.length > 0) {
-				logDebug(`Agent ${agentNum}: Found ${modifiedFiles.length} modified files in sandbox`);
-
-				for (const relPath of modifiedFiles) {
-					// Validate path before copying
-					const sandboxPath = validatePath(sandboxDir, relPath);
-					const originalPath = validatePath(originalDir, relPath);
-
-					if (!sandboxPath || !originalPath) {
-						logDebug(`Security: Skipping invalid path: ${relPath}`);
-						continue;
-					}
-
-					if (!existsSync(sandboxPath)) {
-						logDebug(`File not found in sandbox: ${relPath}`);
-						continue;
-					}
-
-					const parentDir = dirname(originalPath);
-					if (!existsSync(parentDir)) {
-						mkdirSync(parentDir, { recursive: true });
-					}
-
-					copyFileSync(sandboxPath, originalPath);
-					logDebug(`Copied back modified file: ${relPath}`);
-				}
-			}
-		} catch (error) {
-			logDebug(`Agent ${agentNum}: Failed to sync changes: ${error}`);
-			// Continue anyway - agent work might still be useful
-		}
-
 		return {
 			task,
 			agentNum,
