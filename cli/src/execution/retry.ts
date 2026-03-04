@@ -13,6 +13,8 @@ interface RetryOptions {
 	jitter?: boolean;
 	/** Optional task ID for tracking connection state */
 	taskId?: string;
+	/** Optional circuit-breaker instance to isolate retry state */
+	connectionManager?: ConnectionStateManager;
 }
 
 /**
@@ -266,11 +268,13 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions):
 		maxDelay = 60,
 		jitter = true,
 		taskId,
+		connectionManager,
 	} = options;
 	let lastError: Error | null = null;
+	const breaker = connectionManager || circuitBreaker;
 
 	// Check circuit breaker before attempting
-	const circuitCheck = circuitBreaker.canAttempt();
+	const circuitCheck = breaker.canAttempt();
 	if (!circuitCheck.allowed) {
 		logError(`Circuit breaker preventing retry: ${circuitCheck.reason}`);
 		throw new Error(circuitCheck.reason || "Connection circuit open - too many failures");
@@ -280,7 +284,7 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions):
 		try {
 			const result = await fn();
 			// Success - record it to close circuit if in half-open
-			circuitBreaker.recordSuccess();
+			breaker.recordSuccess();
 			return result;
 		} catch (error) {
 			lastError = standardizeError(error);
@@ -289,13 +293,13 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions):
 			if (!lastError) {
 				continue;
 			}
-			circuitBreaker.recordFailure(lastError);
+			breaker.recordFailure(lastError);
 
 			if (attempt < maxRetries) {
 				const errorMsg = lastError.message;
 
 				// Check if circuit is now open
-				const currentState = circuitBreaker.canAttempt();
+				const currentState = breaker.canAttempt();
 				if (!currentState.allowed) {
 					logError(`Connection circuit opened after ${attempt} attempts: ${currentState.reason}`);
 					// Don't throw immediately - finish current retry loop but warn user
@@ -321,7 +325,7 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions):
 				await sleep(delayMs);
 
 				// Re-check circuit state before next attempt
-				const recheck = circuitBreaker.canAttempt();
+				const recheck = breaker.canAttempt();
 				if (!recheck.allowed) {
 					throw new Error(recheck.reason || "Connection circuit open - stopping retries");
 				}

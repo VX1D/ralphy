@@ -16,11 +16,13 @@ const c = {
 };
 
 function sanitizeTerminalText(value: string): string {
-	return value
-		// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape removal
-		.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
-		// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal control chars
-		.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+	return (
+		value
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape removal
+			.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal control chars
+			.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+	);
 }
 
 export class StaticAgentDisplay {
@@ -284,6 +286,10 @@ export class StaticAgentDisplay {
 			if (phase) current.phase = phase;
 			if (modelName) current.modelName = modelName;
 		}
+	}
+
+	getAgentTaskTitle(agentNum: number): string | undefined {
+		return this.agentProgressMap.get(agentNum)?.taskTitle;
 	}
 
 	clearAgentSteps(agentNum: number): void {

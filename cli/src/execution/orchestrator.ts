@@ -243,7 +243,14 @@ export async function executeWithOrchestrator(
 	// Update display to show test model is running
 	const display = StaticAgentDisplay.getInstance();
 	if (display && options.agentNum !== undefined) {
-		display.setAgentStatus(options.agentNum, "", "working", "testing", testModel || "test");
+		const currentTitle = display.getAgentTaskTitle(options.agentNum) || "Orchestrator task";
+		display.setAgentStatus(
+			options.agentNum,
+			currentTitle,
+			"working",
+			"testing",
+			testModel || "test",
+		);
 	}
 
 	// Step 2: Run test model to verify the work
@@ -320,20 +327,11 @@ export function shouldUseOrchestrator(
 	const combined = `${taskTitle} ${taskDescription}`.toLowerCase();
 
 	// Use orchestrator for tasks that likely need testing
-	const testKeywords = [
-		"test",
-		"spec",
-		"jest",
-		"vitest",
-		"mocha",
-		"cypress",
-		"playwright",
-		"implement",
-		"create",
-		"build",
-		"fix",
-		"debug",
-	];
+	const testKeywords = ["test", "spec", "jest", "vitest", "mocha", "cypress", "playwright"];
+	const implKeywords = ["implement", "create feature", "fix bug", "debug", "failing"];
 
-	return testKeywords.some((kw) => combined.includes(kw));
+	return (
+		testKeywords.some((kw) => combined.includes(kw)) ||
+		implKeywords.some((kw) => combined.includes(kw))
+	);
 }

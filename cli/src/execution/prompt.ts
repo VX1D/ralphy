@@ -376,12 +376,12 @@ export function buildPrompt(options: PromptOptions): string {
 
 	const instructions = buildInstructions({ skipTests, skipLint, autoCommit, progressFile });
 	const boundaries = loadBoundaries(workDir);
-
 	const sections = [
 		buildEnvironmentSection(workDir),
 		buildContextSection(workDir),
 		buildSkillsSection(workDir),
 		isBrowserAvailable(browserEnabled) ? getBrowserInstructions() : "",
+		`## Boundaries\nDo NOT modify these files/directories:\n${buildProtectedPathsWarning(prdFile, boundaries)}`,
 		`## Task\n${task}`,
 		`## Instructions\n${instructions.join("\n")}`,
 	].filter(Boolean);
@@ -392,7 +392,7 @@ TASK: ${task}
 
 ${sections.join("\n\n")}
 
-${buildProtectedPathsWarning(prdFile, boundaries)}
+Protected paths are listed in the Boundaries section.
 Do NOT Read, Glob, or Search inside .ralphy-sandboxes or .ralphy-worktrees.
 Do NOT mark tasks complete - that will be handled separately.
 Focus only on implementing: ${task}`;
@@ -401,7 +401,6 @@ Focus only on implementing: ${task}`;
 function buildContextSection(workDir: string): string {
 	const context = loadProjectContext(workDir);
 	const rules = loadRules(workDir);
-	const boundaries = loadBoundaries(workDir);
 
 	const sections: string[] = [];
 	if (context) sections.push(`## Project Context\n${context}`);
@@ -410,8 +409,7 @@ function buildContextSection(workDir: string): string {
 	const allRules = [...DEFAULT_RULES, ...rules];
 	sections.push(`## Rules (you MUST follow these)\n${allRules.join("\n")}`);
 
-	// Always include boundaries section
-	sections.push(`## Boundaries\nDo NOT modify these files/directories:\n${boundaries.join("\n")}`);
+	// Boundaries are included in the protected paths warning section.
 
 	return sections.join("\n\n");
 }

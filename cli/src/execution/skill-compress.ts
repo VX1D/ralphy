@@ -3,7 +3,7 @@
  * Reduces token usage by minifying markdown skill files
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { logDebug } from "../ui/logger.ts";
 
@@ -18,34 +18,36 @@ export function compressMarkdown(content: string): string {
 				return segment;
 			}
 
-			return segment
-				// Remove multiple consecutive blank lines
-				.replace(/\n{3,}/g, "\n\n")
-				// Remove trailing whitespace from lines
-				.replace(/[ \t]+$/gm, "")
-				// Remove whitespace-only lines
-				.replace(/^\s+$/gm, "")
-				// Compress verbose phrases
-				.replace(/Please note that /gi, "Note: ")
-				.replace(/In order to /gi, "To ")
-				.replace(/Make sure to /gi, "")
-				.replace(/You should /gi, "")
-				.replace(/You must /gi, "Must ")
-				.replace(/It is important to /gi, "")
-				.replace(/Keep in mind that /gi, "")
-				// Remove redundant markdown emphasis in instructions
-				.replace(/\*\*Note\*\*:/g, "Note:")
-				.replace(/\*\*Important\*\*:/g, "Important:")
-				// Technical Jargon Compression
-				.replace(/implementation/gi, "impl")
-				.replace(/information/gi, "info")
-				.replace(/directory/gi, "dir")
-				.replace(/directories/gi, "dirs")
-				.replace(/initialization/gi, "init")
-				.replace(/configuration/gi, "config")
-				.replace(/parameters/gi, "params")
-				.replace(/environment/gi, "env")
-				.replace(/documentation/gi, "docs");
+			return (
+				segment
+					// Remove multiple consecutive blank lines
+					.replace(/\n{3,}/g, "\n\n")
+					// Remove trailing whitespace from lines
+					.replace(/[ \t]+$/gm, "")
+					// Remove whitespace-only lines
+					.replace(/^\s+$/gm, "")
+					// Compress verbose phrases
+					.replace(/Please note that /gi, "Note: ")
+					.replace(/In order to /gi, "To ")
+					.replace(/Make sure to /gi, "")
+					.replace(/You should /gi, "")
+					.replace(/You must /gi, "Must ")
+					.replace(/It is important to /gi, "")
+					.replace(/Keep in mind that /gi, "")
+					// Remove redundant markdown emphasis in instructions
+					.replace(/\*\*Note\*\*:/g, "Note:")
+					.replace(/\*\*Important\*\*:/g, "Important:")
+					// Technical Jargon Compression
+					.replace(/\bimplementation\b/gi, "impl")
+					.replace(/\binformation\b/gi, "info")
+					.replace(/\bdirectory\b/gi, "dir")
+					.replace(/\bdirectories\b/gi, "dirs")
+					.replace(/\binitialization\b/gi, "init")
+					.replace(/\bconfiguration\b/gi, "config")
+					.replace(/\bparameters\b/gi, "params")
+					.replace(/\benvironment\b/gi, "env")
+					.replace(/\bdocumentation\b/gi, "docs")
+			);
 		})
 		.join("");
 

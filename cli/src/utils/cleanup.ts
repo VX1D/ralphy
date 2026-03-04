@@ -112,11 +112,17 @@ export async function runCleanup(): Promise<void> {
 }
 
 let isShuttingDown = false;
+let handlersRegistered = false;
 
 /**
  * Setup process signal handlers for cleanup
  */
 export function setupSignalHandlers(): void {
+	if (handlersRegistered) {
+		return;
+	}
+	handlersRegistered = true;
+
 	const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
 
 	for (const signal of signals) {

@@ -19,6 +19,7 @@ import YAML from "yaml";
 import { RALPHY_DIR } from "../config/loader.ts";
 import type { Task, TaskSourceType } from "../tasks/types.ts";
 import { logDebug, logError } from "../ui/logger.ts";
+import { acquireFileLock, releaseFileLock } from "./locking.ts";
 
 export enum TaskState {
 	PENDING = "pending",
@@ -147,27 +148,38 @@ export class TaskStateManager {
 	 */
 	async claimTaskForExecution(taskId: string): Promise<boolean> {
 		const key = this.buildTaskKey(taskId);
-		const task = this.tasks.get(key);
+		const workDir = dirname(dirname(this.stateFilePath));
+		const lockKey = `${this.stateFilePath}.claim`;
 
-		if (!task) {
-			logError(`Task ${taskId} not found in state manager`);
+		if (!acquireFileLock(lockKey, workDir, 5)) {
+			logDebug(`Task ${taskId} could not acquire claim lock`);
 			return false;
 		}
 
-		// Only allow claiming if task is pending
-		if (task.state !== TaskState.PENDING) {
-			logDebug(`Task ${taskId} cannot be claimed - state is ${task.state}`);
-			return false;
+		try {
+			await this.loadState();
+			const task = this.tasks.get(key);
+
+			if (!task) {
+				logError(`Task ${taskId} not found in state manager`);
+				return false;
+			}
+
+			if (task.state !== TaskState.PENDING) {
+				logDebug(`Task ${taskId} cannot be claimed - state is ${task.state}`);
+				return false;
+			}
+
+			task.state = TaskState.RUNNING;
+			task.attemptCount++;
+			task.lastAttemptTime = Date.now();
+			await this.persistState();
+
+			logDebug(`Task ${taskId} claimed for execution (attempt ${task.attemptCount})`);
+			return true;
+		} finally {
+			releaseFileLock(lockKey, workDir);
 		}
-
-		// Atomically transition to running
-		task.state = TaskState.RUNNING;
-		task.attemptCount++;
-		task.lastAttemptTime = Date.now();
-		await this.persistState();
-
-		logDebug(`Task ${taskId} claimed for execution (attempt ${task.attemptCount})`);
-		return true;
 	}
 
 	/**
@@ -326,7 +338,30 @@ export class TaskStateManager {
 	 * Build a unique key for a task.
 	 */
 	private buildTaskKey(taskId: string): string {
-		return `${this.sourceType}:${this.sourcePath}:${taskId}`;
+		const encodedSourceType = encodeURIComponent(this.sourceType);
+		const encodedSourcePath = encodeURIComponent(this.sourcePath);
+		const encodedTaskId = encodeURIComponent(taskId);
+		return `${encodedSourceType}:${encodedSourcePath}:${encodedTaskId}`;
+	}
+
+	private extractTaskIdFromKey(key: string): string {
+		const parts = key.split(":");
+		if (parts.length === 3) {
+			try {
+				return decodeURIComponent(parts[2]);
+			} catch {
+				// Fall through to legacy parsing
+			}
+		}
+
+		// Legacy fallback for older unencoded keys.
+		const firstColon = key.indexOf(":");
+		const secondColon = firstColon === -1 ? -1 : key.indexOf(":", firstColon + 1);
+		if (secondColon !== -1 && secondColon + 1 < key.length) {
+			return key.slice(secondColon + 1);
+		}
+
+		return key;
 	}
 
 	/**
@@ -548,8 +583,8 @@ export class TaskStateManager {
 	 * Parse state from CSV format.
 	 */
 	private fromCSV(content: string): StateFileFormat {
-		const lines = content.trim().split("\n");
-		if (lines.length < 2) {
+		const records = this.parseCsvRecords(content);
+		if (records.length < 2) {
 			return {
 				version: TaskStateManager.STATE_VERSION,
 				lastUpdated: new Date().toISOString(),
@@ -558,8 +593,8 @@ export class TaskStateManager {
 		}
 
 		const tasks: Record<string, TaskStateEntry> = {};
-		for (let i = 1; i < lines.length; i++) {
-			const line = lines[i];
+		for (let i = 1; i < records.length; i++) {
+			const line = records[i];
 			if (!line || line.trim().length === 0) continue;
 
 			const parts = this.parseCsvLine(line);
@@ -600,6 +635,46 @@ export class TaskStateManager {
 			lastUpdated: new Date().toISOString(),
 			tasks,
 		};
+	}
+
+	private parseCsvRecords(content: string): string[] {
+		const records: string[] = [];
+		let current = "";
+		let inQuotes = false;
+
+		for (let i = 0; i < content.length; i++) {
+			const char = content[i];
+
+			if (char === '"') {
+				if (inQuotes && content[i + 1] === '"') {
+					current += '""';
+					i++;
+				} else {
+					inQuotes = !inQuotes;
+					current += char;
+				}
+				continue;
+			}
+
+			if ((char === "\n" || char === "\r") && !inQuotes) {
+				if (char === "\r" && content[i + 1] === "\n") {
+					i++;
+				}
+				if (current.trim().length > 0) {
+					records.push(current);
+				}
+				current = "";
+				continue;
+			}
+
+			current += char;
+		}
+
+		if (current.trim().length > 0) {
+			records.push(current);
+		}
+
+		return records;
 	}
 
 	/**
@@ -678,11 +753,7 @@ export class TaskStateManager {
 			}
 
 			// Extract ID from key
-			const firstColon = key.indexOf(":");
-			const secondColon = firstColon === -1 ? -1 : key.indexOf(":", firstColon + 1);
-			if (secondColon !== -1 && secondColon + 1 < key.length) {
-				task.id = key.slice(secondColon + 1);
-			}
+			task.id = this.extractTaskIdFromKey(key);
 
 			tasks[key] = task;
 		}
