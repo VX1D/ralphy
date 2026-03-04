@@ -7,9 +7,16 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
+import {
+	mkdir as mkdirAsync,
+	readdir as readdirAsync,
+	readFile as readFileAsync,
+	stat as statAsync,
+	writeFile as writeFileAsync,
+} from "node:fs/promises";
 import { join, relative } from "node:path";
-import { DEFAULT_IGNORE_PATTERNS, MAX_FILE_SIZE_FOR_HASH } from "../config/constants.ts";
+import { CACHE_TTL_MS, DEFAULT_IGNORE_PATTERNS, MAX_FILE_SIZE_FOR_HASH } from "../config/constants.ts";
 import { RALPHY_DIR } from "../config/loader.ts";
 import { logDebug } from "../ui/logger.ts";
 
@@ -27,6 +34,10 @@ const GLOB_REGEX_CACHE_MAX_ENTRIES = 500;
 const GLOB_REGEX_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const globRegexCache = new Map<string, { regex: RegExp; expiresAt: number }>();
+
+function isCacheFresh(index: FileIndex): boolean {
+	return Date.now() - index.timestamp <= CACHE_TTL_MS;
+}
 
 /**
  * File metadata entry in the index
@@ -548,13 +559,13 @@ function calculateRelevanceScore(taskKeywords: string[], fileEntry: FileIndexEnt
 /**
  * Create a file index entry for a single file
  */
-function createFileIndexEntry(
+async function createFileIndexEntry(
 	filePath: string,
 	relPath: string,
 	maxSizeForContent = MAX_FILE_SIZE_FOR_HASH,
-): FileIndexEntry | null {
+): Promise<FileIndexEntry | null> {
 	try {
-		const stat = statSync(filePath);
+		const stat = await statAsync(filePath);
 
 		if (!stat.isFile()) return null;
 
@@ -565,7 +576,7 @@ function createFileIndexEntry(
 
 		if (stat.size <= maxSizeForContent) {
 			try {
-				const content = readFileSync(filePath, "utf-8");
+				const content = await readFileAsync(filePath, "utf-8");
 				hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
 				preview = content.slice(0, MAX_CONTENT_PREVIEW_LENGTH);
 				contentKeywords = extractContentKeywords(content, 10);
@@ -625,7 +636,10 @@ export async function indexWorkspace(
 	// Check memory cache first - return a clone to prevent mutation
 	const cached = indexCache.get(workDir);
 	if (!forceRebuild && cached) {
-		return cloneFileIndex(cached);
+		if (isCacheFresh(cached)) {
+			return cloneFileIndex(cached);
+		}
+		indexCache.delete(workDir);
 	}
 
 	// Check if another operation is already indexing this workspace
@@ -663,17 +677,20 @@ async function performIndexing(
 	// Double-check cache after acquiring lock (another thread may have completed)
 	const cached = indexCache.get(workDir);
 	if (!forceRebuild && cached) {
-		return cached;
+		if (isCacheFresh(cached)) {
+			return cached;
+		}
+		indexCache.delete(workDir);
 	}
 
 	// Try to load from disk cache
 	if (!forceRebuild) {
-		const diskCache = loadIndexFromDisk(workDir);
+		const diskCache = await loadIndexFromDisk(workDir);
 		if (diskCache) {
 			// Perform incremental update
 			const updated = await incrementalUpdateIndex(workDir, diskCache, ignorePatterns, maxDepth);
 			indexCache.set(workDir, updated);
-			saveIndexToDisk(workDir, updated);
+			await saveIndexToDisk(workDir, updated);
 			return updated;
 		}
 	}
@@ -691,17 +708,17 @@ async function performIndexing(
 	// Ensure .ralphy directory exists
 	const ralphyDir = join(workDir, RALPHY_DIR);
 	if (!existsSync(ralphyDir)) {
-		mkdirSync(ralphyDir, { recursive: true });
+		await mkdirAsync(ralphyDir, { recursive: true });
 	}
 
 	// Collect all files
 	const filesToIndex: string[] = [];
 
-	function collectFiles(dir: string, currentDepth: number) {
+	async function collectFiles(dir: string, currentDepth: number): Promise<void> {
 		if (currentDepth > maxDepth) return;
 
 		try {
-			const entries = readdirSync(dir, { withFileTypes: true });
+			const entries = await readdirAsync(dir, { withFileTypes: true });
 			for (const entry of entries) {
 				const fullPath = join(dir, entry.name);
 				const relPath = relative(workDir, fullPath);
@@ -711,7 +728,7 @@ async function performIndexing(
 				}
 
 				if (entry.isDirectory()) {
-					collectFiles(fullPath, currentDepth + 1);
+					await collectFiles(fullPath, currentDepth + 1);
 				} else if (entry.isFile()) {
 					filesToIndex.push(fullPath);
 				}
@@ -721,12 +738,12 @@ async function performIndexing(
 		}
 	}
 
-	collectFiles(workDir, 0);
+	await collectFiles(workDir, 0);
 
 	// Index all collected files
 	for (const filePath of filesToIndex) {
 		const relPath = relative(workDir, filePath);
-		const entry = createFileIndexEntry(filePath, relPath);
+		const entry = await createFileIndexEntry(filePath, relPath);
 		if (entry) {
 			index.files.set(relPath, entry);
 			index.totalFiles++;
@@ -736,7 +753,7 @@ async function performIndexing(
 
 	// Cache and save
 	indexCache.set(workDir, index);
-	saveIndexToDisk(workDir, index);
+	await saveIndexToDisk(workDir, index);
 
 	logDebug(`Indexed ${index.totalFiles} files (${(index.totalSize / 1024 / 1024).toFixed(2)} MB)`);
 
@@ -766,11 +783,11 @@ async function incrementalUpdateIndex(
 	let unchangedCount = 0;
 	let removedCount = 0;
 
-	function scanDirectory(dir: string, currentDepth: number) {
+	async function scanDirectory(dir: string, currentDepth: number): Promise<void> {
 		if (currentDepth > maxDepth) return;
 
 		try {
-			const entries = readdirSync(dir, { withFileTypes: true });
+			const entries = await readdirAsync(dir, { withFileTypes: true });
 			for (const entry of entries) {
 				const fullPath = join(dir, entry.name);
 				const relPath = relative(workDir, fullPath);
@@ -780,19 +797,19 @@ async function incrementalUpdateIndex(
 				}
 
 				if (entry.isDirectory()) {
-					scanDirectory(fullPath, currentDepth + 1);
+					await scanDirectory(fullPath, currentDepth + 1);
 				} else if (entry.isFile()) {
 					currentFiles.add(relPath);
 
 					const existingEntry = updatedIndex.files.get(relPath);
-					const stat = statSync(fullPath);
+					const stat = await statAsync(fullPath);
 
 					if (existingEntry && existingEntry.mtime === stat.mtimeMs && existingEntry.size === stat.size) {
 						// File unchanged - keep existing entry
 						unchangedCount++;
 					} else {
 						// File changed or new - reindex
-						const newEntry = createFileIndexEntry(fullPath, relPath);
+						const newEntry = await createFileIndexEntry(fullPath, relPath);
 						if (newEntry) {
 							updatedIndex.files.set(relPath, newEntry);
 							reindexedCount++;
@@ -805,7 +822,7 @@ async function incrementalUpdateIndex(
 		}
 	}
 
-	scanDirectory(workDir, 0);
+	await scanDirectory(workDir, 0);
 
 	// Remove deleted files from index
 	for (const [relPath] of updatedIndex.files) {
@@ -831,7 +848,7 @@ async function incrementalUpdateIndex(
 /**
  * Load index from disk cache
  */
-function loadIndexFromDisk(workDir: string): FileIndex | null {
+async function loadIndexFromDisk(workDir: string): Promise<FileIndex | null> {
 	const cachePath = getIndexCachePath(workDir);
 
 	if (!existsSync(cachePath)) {
@@ -839,7 +856,7 @@ function loadIndexFromDisk(workDir: string): FileIndex | null {
 	}
 
 	try {
-		const content = readFileSync(cachePath, "utf-8");
+		const content = await readFileAsync(cachePath, "utf-8");
 		const serialized: SerializedFileIndex = JSON.parse(content);
 
 		return {
@@ -859,7 +876,7 @@ function loadIndexFromDisk(workDir: string): FileIndex | null {
 /**
  * Save index to disk cache
  */
-function saveIndexToDisk(workDir: string, index: FileIndex): void {
+async function saveIndexToDisk(workDir: string, index: FileIndex): Promise<void> {
 	const cachePath = getIndexCachePath(workDir);
 
 	try {
@@ -872,7 +889,7 @@ function saveIndexToDisk(workDir: string, index: FileIndex): void {
 			totalSize: index.totalSize,
 		};
 
-		writeFileSync(cachePath, JSON.stringify(serialized, null, 2));
+		await writeFileAsync(cachePath, JSON.stringify(serialized, null, 2));
 	} catch (error) {
 		logDebug(`Failed to save file index to disk: ${error}`);
 	}

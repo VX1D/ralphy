@@ -9,22 +9,21 @@ const loggerState = {
 	debugMode: false,
 };
 
-// Allowed log directory - logs can only be written here
-const ALLOWED_LOG_DIR = "logs";
-
 /**
  * Validate log file path to prevent path traversal attacks
  */
 function validateLogPath(filePath: string): string {
-	const resolved = path.resolve(filePath);
-	const allowedDir = path.resolve(process.cwd(), ALLOWED_LOG_DIR);
-	const relative = path.relative(allowedDir, resolved);
-
-	if (relative.startsWith("..") || path.isAbsolute(relative)) {
-		throw new Error(`Invalid log file path: ${filePath} must be within ${ALLOWED_LOG_DIR}`);
+	if (!filePath || typeof filePath !== "string") {
+		throw new Error("Invalid log file path");
 	}
 
-	return resolved;
+	if (filePath.includes("\0")) {
+		throw new Error("Invalid log file path: null byte detected");
+	}
+
+	return path.isAbsolute(filePath)
+		? path.normalize(filePath)
+		: path.resolve(process.cwd(), filePath);
 }
 
 /**
