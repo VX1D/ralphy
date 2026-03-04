@@ -81,7 +81,7 @@ export type TelemetryLevel = "anonymous" | "full";
 /**
  * Full session data for webhook
  */
-interface WebhookSessionData {
+export interface WebhookSessionData {
 	sessionId: string;
 	engine: string;
 	mode: string;
@@ -106,7 +106,7 @@ interface WebhookSessionData {
 /**
  * Full session details for webhook (full privacy mode)
  */
-interface WebhookSessionDetails {
+export interface WebhookSessionDetails {
 	prompt?: string;
 	response?: string;
 	filePaths?: string[];

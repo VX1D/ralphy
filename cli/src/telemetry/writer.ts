@@ -7,6 +7,7 @@
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { logDebug } from "../ui/logger.ts";
 import type { Session, SessionFull, ToolCall } from "./types.js";
 
 const DEFAULT_OUTPUT_DIR = ".ralphy/telemetry";
@@ -97,8 +98,8 @@ export class TelemetryWriter {
 		for (const line of lines) {
 			try {
 				sessions.push(JSON.parse(line) as Session | SessionFull);
-			} catch {
-				// Skip corrupt lines
+			} catch (error) {
+				logDebug(`Failed to parse telemetry session line: ${error}`);
 			}
 		}
 		return sessions;
@@ -122,8 +123,8 @@ export class TelemetryWriter {
 		for (const line of lines) {
 			try {
 				toolCalls.push(JSON.parse(line) as ToolCall);
-			} catch {
-				// Skip corrupt lines
+			} catch (error) {
+				logDebug(`Failed to parse telemetry tool-call line: ${error}`);
 			}
 		}
 		return toolCalls;

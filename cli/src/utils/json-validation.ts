@@ -68,7 +68,13 @@ export const ToolUseSchema = z.object({
 			state: z
 				.object({
 					input: z
-						.union([z.string(), z.number(), z.boolean(), z.object({}).passthrough(), z.array(z.unknown())])
+						.union([
+							z.string(),
+							z.number(),
+							z.boolean(),
+							z.object({}).passthrough(),
+							z.array(z.unknown()),
+						])
 						.optional(),
 					status: z.string().optional(),
 				})
@@ -125,7 +131,7 @@ export function parseJsonLine(line: string): { event: StreamJsonEvent; remaining
 					isEscaped = false;
 					continue;
 				}
-				if (char === "\\") {
+				if (inString && char === "\\") {
 					isEscaped = true;
 					continue;
 				}
