@@ -26,10 +26,10 @@ function debugLog(...args: unknown[]): void {
 function tokenizeCommand(command: string): string[] {
 	const tokens: string[] = [];
 	const regex = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
-	let match: RegExpExecArray | null;
-
-	while ((match = regex.exec(command)) !== null) {
+	let match = regex.exec(command);
+	while (match !== null) {
 		tokens.push(match[1] ?? match[2] ?? match[0]);
+		match = regex.exec(command);
 	}
 
 	return tokens;
@@ -78,9 +78,7 @@ export function validateCommand(command: string): string | null {
 
 	// Allow executable characters: alphanumeric, hyphen, underscore, dot, slashes.
 	// Windows also needs drive-letter colon support (e.g., C:\tools\bun.exe).
-	const validCommandPattern = isWindows
-		? /^[a-zA-Z0-9._\-\\/:]+$/
-		: /^[a-zA-Z0-9._\-/]+$/;
+	const validCommandPattern = isWindows ? /^[a-zA-Z0-9._\-\\/:]+$/ : /^[a-zA-Z0-9._\-/]+$/;
 
 	if (!validCommandPattern.test(commandToken)) {
 		debugLog(`Command validation failed: invalid command token "${commandToken}"`);
@@ -109,7 +107,9 @@ export function validateArgs(args: string[]): string[] | null {
 	// Check total arguments length
 	const totalLength = args.reduce((sum, arg) => sum + arg.length, 0);
 	if (totalLength > MAX_TOTAL_ARGS_LENGTH) {
-		debugLog(`Argument validation failed: total arguments too long (${totalLength} > ${MAX_TOTAL_ARGS_LENGTH})`);
+		debugLog(
+			`Argument validation failed: total arguments too long (${totalLength} > ${MAX_TOTAL_ARGS_LENGTH})`,
+		);
 		return null;
 	}
 

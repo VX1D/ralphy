@@ -11,6 +11,10 @@ export class CodexEngine extends BaseAIEngine {
 	name = "Codex";
 	cliCommand = "codex";
 
+	protected useStdin(): boolean {
+		return false;
+	}
+
 	private buildArgsInternal(
 		prompt: string,
 		workDir: string,

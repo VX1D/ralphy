@@ -24,6 +24,10 @@ export class CopilotEngine extends BaseAIEngine {
 		return args;
 	}
 
+	protected useStdin(): boolean {
+		return false;
+	}
+
 	private buildArgsInternal(
 		prompt: string,
 		options?: EngineOptions,

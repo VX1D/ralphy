@@ -106,7 +106,12 @@ export async function runCleanup(): Promise<void> {
 		}
 	}
 
-	await Promise.allSettled(promises);
+	const results = await Promise.allSettled(promises);
+	for (const result of results) {
+		if (result.status === "rejected") {
+			logWarn(`Cleanup task failed: ${result.reason}`);
+		}
+	}
 	cleanupRegistry.clear();
 	isCleaningUp = false;
 }

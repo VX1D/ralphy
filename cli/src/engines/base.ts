@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import { DEFAULT_AI_ENGINE_TIMEOUT_MS } from "../config/constants.ts";
 import { logDebug } from "../ui/logger.ts";
 
@@ -72,6 +73,14 @@ export abstract class BaseAIEngine implements AIEngine {
 	}
 
 	/**
+	 * Whether prompt should be passed through stdin.
+	 * Engines that pass prompts via temp files should override this to false.
+	 */
+	protected useStdin(): boolean {
+		return true;
+	}
+
+	/**
 	 * Build args array with stdin handling
 	 * Prompts are passed via stdin to avoid shell escaping issues and ensure
 	 * cross-platform compatibility (Windows, Linux, macOS)
@@ -103,7 +112,7 @@ export abstract class BaseAIEngine implements AIEngine {
 		const env = this.getEnv(options);
 
 		// Always use stdin for prompts - most reliable cross-platform approach
-		const stdinContent = prompt;
+		const stdinContent = this.useStdin() ? prompt : undefined;
 
 		debugLog(`Starting ${this.name} engine with ${this.cliCommand}`);
 		debugLog(`WorkDir: ${workDir}`);
@@ -190,15 +199,13 @@ export abstract class BaseAIEngine implements AIEngine {
 					}
 				};
 
-				const exitedPromise =
-					childProcess && childProcess.exited
-						? childProcess.exited
-						: new Promise<number>((resolve) => {
-								const nodeProcess =
-									childProcess as unknown as import("node:child_process").ChildProcess;
-								nodeProcess.once("close", (code) => resolve(code ?? 1));
-								nodeProcess.once("error", () => resolve(1));
-							});
+				const exitedPromise = childProcess?.exited
+					? childProcess.exited
+					: new Promise<number>((resolve) => {
+							const nodeProcess = childProcess as unknown as ChildProcess;
+							nodeProcess.once("close", (code) => resolve(code ?? 1));
+							nodeProcess.once("error", () => resolve(1));
+						});
 
 				const [resolvedExitCode] = await Promise.all([exitedPromise, readStdout(), readStderr()]);
 				exitCode = resolvedExitCode ?? 1;
@@ -248,7 +255,7 @@ export abstract class BaseAIEngine implements AIEngine {
 		const env = this.getEnv(options);
 
 		// Always use stdin for prompts - most reliable cross-platform approach
-		const stdinContent = prompt;
+		const stdinContent = this.useStdin() ? prompt : undefined;
 
 		debugLog(`Starting ${this.name} engine (non-streaming)`);
 		debugLog(`WorkDir: ${workDir}`);

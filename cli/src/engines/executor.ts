@@ -291,9 +291,10 @@ export async function execCommandStreaming(
 		readStreamLines(stderr),
 	]);
 	clearTimeout(timeoutId);
+	const didTimeOut = timedOut;
 	timedOut = false;
 
-	return { exitCode: timedOut ? 1 : (exitCode ?? 1) };
+	return { exitCode: didTimeOut ? 1 : (exitCode ?? 1) };
 }
 
 /**

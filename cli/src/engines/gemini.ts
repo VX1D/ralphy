@@ -38,45 +38,12 @@ export class GeminiEngine extends BaseAIEngine {
 	 * Process CLI output into AIResult
 	 */
 	protected processCliResult(
-		stdout: string,
-		stderr: string,
-		exitCode: number,
+		_stdout: string,
+		_stderr: string,
+		_exitCode: number,
 		_workDir: string,
 	): AIResult {
-		const output = stdout + stderr;
-
-		// Check for errors
-		const error = checkForErrors(output);
-		if (error) {
-			return {
-				success: false,
-				response: "",
-				inputTokens: 0,
-				outputTokens: 0,
-				error,
-			};
-		}
-
-		// Parse result (same format as Claude/Qwen)
-		const { response, inputTokens, outputTokens } = parseStreamJsonResult(output);
-
-		// If command failed with non-zero exit code, provide a meaningful error
-		if (exitCode !== 0) {
-			return {
-				success: false,
-				response,
-				inputTokens,
-				outputTokens,
-				error: formatCommandError(exitCode, output),
-			};
-		}
-
-		return {
-			success: true,
-			response,
-			inputTokens,
-			outputTokens,
-		};
+		throw new Error("GeminiEngine: use execute() or executeStreaming() directly");
 	}
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {

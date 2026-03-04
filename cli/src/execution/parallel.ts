@@ -97,7 +97,12 @@ async function runAgentInWorktree(
 		logDebug(`Agent ${agentNum}: Created worktree at ${worktreeDir}`);
 
 		// Copy PRD file or folder to worktree
-		if (prdSource === "markdown" || prdSource === "yaml" || prdSource === "json") {
+		if (
+			prdSource === "markdown" ||
+			prdSource === "yaml" ||
+			prdSource === "json" ||
+			prdSource === "csv"
+		) {
 			const srcPath = resolveRelativePathInside(originalDir, prdFile);
 			const destPath = resolveRelativePathInside(worktreeDir, prdFile);
 			if (srcPath && destPath && existsSync(srcPath)) {
@@ -196,7 +201,12 @@ async function runAgentInSandbox(
 		);
 
 		// Copy PRD file or folder to sandbox (same as worktree mode)
-		if (prdSource === "markdown" || prdSource === "yaml" || prdSource === "json") {
+		if (
+			prdSource === "markdown" ||
+			prdSource === "yaml" ||
+			prdSource === "json" ||
+			prdSource === "csv"
+		) {
 			const srcPath = resolveRelativePathInside(originalDir, prdFile);
 			const destPath = resolveRelativePathInside(sandboxDir, prdFile);
 			if (srcPath && destPath && existsSync(srcPath)) {
