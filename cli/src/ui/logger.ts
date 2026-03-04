@@ -121,7 +121,7 @@ class ConsoleLogSink implements LogSink {
 				console.warn(pc.yellow(`${prefix} ${component ? `[${component}] ` : ""}${message}`));
 				break;
 			case "success":
-				console.log(pc.green(`${prefix} ${component ? `[${component}] ` : ""}${message}`));
+				console.log(pc.green(`[OK] ${message}`));
 				break;
 			case "info":
 				console.log(pc.blue(`${prefix} ${component ? `[${component}] ` : ""}${message}`));
