@@ -290,6 +290,7 @@ export class ProgressDisplay {
 		parts.push(`${elapsed} elapsed`);
 
 		clearConsole(this.lastLineCount);
+		process.stdout.write(`${pc.dim(parts.join(" | "))}\n`);
 		this.lastLineCount = 1;
 		this.lastUpdate = now;
 	}

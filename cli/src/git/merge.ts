@@ -271,8 +271,8 @@ export async function analyzePreMerge(
 	const git: SimpleGit = simpleGit(workDir);
 
 	try {
-		// Get list of files that differ between the branch and target
-		// Using two-dot notation to show unique changes to target (excluding ancestor commits)
+		// Get list of files that differ between branch and target tips.
+		// Two-dot here is used for direct branch-vs-target comparison.
 		const diffOutput = await git.diff([`${targetBranch}..${branch}`, "--name-only"]);
 		const filesChanged = diffOutput
 			.split("\n")
