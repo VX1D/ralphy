@@ -194,9 +194,8 @@ export abstract class BaseAIEngine implements AIEngine {
 					childProcess && childProcess.exited
 						? childProcess.exited
 						: new Promise<number>((resolve) => {
-								const nodeProcess = childProcess as unknown as import(
-									"node:child_process",
-								).ChildProcess;
+								const nodeProcess =
+									childProcess as unknown as import("node:child_process").ChildProcess;
 								nodeProcess.once("close", (code) => resolve(code ?? 1));
 								nodeProcess.once("error", () => resolve(1));
 							});
