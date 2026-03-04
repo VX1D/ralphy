@@ -238,8 +238,8 @@ function calculateDelay(
 		);
 
 	if (isConnectionError) {
-		// Exponential backoff: 2s, 4s, 8s, max 30s
-		let delayMs = Math.min(2000 * 2 ** (attempt - 1), maxDelayMs);
+		// Exponential backoff based on configured base delay.
+		let delayMs = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
 		if (useJitter) {
 			delayMs = Math.min(delayMs + Math.floor(delayMs * 0.25 * Math.random()), maxDelayMs);
 		}

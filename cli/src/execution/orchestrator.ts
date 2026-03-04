@@ -8,7 +8,12 @@
 import type { AIEngine, AIResult } from "../engines/types.ts";
 import { logDebug, logError, logWarn } from "../ui/logger.ts";
 import { StaticAgentDisplay } from "../ui/static-agent-display.ts";
-import { canMakeConnectionAttempt, circuitBreaker, sleep, waitForConnectionRestore } from "./retry.ts";
+import {
+	canMakeConnectionAttempt,
+	circuitBreaker,
+	sleep,
+	waitForConnectionRestore,
+} from "./retry.ts";
 
 export interface OrchestratorOptions {
 	mainEngine: AIEngine;
@@ -68,7 +73,18 @@ async function executeWithRetry(
 			};
 		}
 
-		const result = await engine.execute(prompt, workDir, options);
+		let result: AIResult;
+		try {
+			result = await engine.execute(prompt, workDir, options);
+		} catch (error) {
+			result = {
+				success: false,
+				response: "",
+				inputTokens: 0,
+				outputTokens: 0,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
 
 		if (result.success) {
 			circuitBreaker.recordSuccess();
@@ -87,7 +103,9 @@ async function executeWithRetry(
 
 			if (attempt < maxRetries) {
 				const delayMs = Math.min(2000 * 2 ** (attempt - 1), 30000);
-				logWarn(`Connection error on attempt ${attempt}/${maxRetries}. Retrying in ${delayMs}ms...`);
+				logWarn(
+					`Connection error on attempt ${attempt}/${maxRetries}. Retrying in ${delayMs}ms...`,
+				);
 				await sleep(delayMs);
 
 				const postFailureCheck = canMakeConnectionAttempt();
@@ -107,7 +125,11 @@ async function executeWithRetry(
 		} else if (attempt >= maxRetries) {
 			break;
 		} else {
-			return result;
+			const delayMs = Math.min(1000 * 2 ** (attempt - 1), 10000);
+			logWarn(
+				`Attempt ${attempt}/${maxRetries} failed: ${result.error || "Unknown error"}. Retrying in ${delayMs}ms...`,
+			);
+			await sleep(delayMs);
 		}
 	}
 
@@ -200,7 +222,9 @@ export async function executeWithOrchestrator(
 
 	// Step 1: Run main model to implement the task
 	reportProgress("Running main model...");
-	const mainResult = await executeWithRetry(mainEngine, prompt, workDir, { modelOverride: mainModel });
+	const mainResult = await executeWithRetry(mainEngine, prompt, workDir, {
+		modelOverride: mainModel,
+	});
 
 	if (!mainResult.success) {
 		return {
@@ -227,7 +251,9 @@ export async function executeWithOrchestrator(
 	const testPrompt = buildTestPrompt(mainOutput, workDir);
 	const testEngineToUse = testEngine || mainEngine;
 	reportProgress("Test prompt ready, executing test model...");
-	const testResult = await executeWithRetry(testEngineToUse, testPrompt, workDir, { modelOverride: testModel });
+	const testResult = await executeWithRetry(testEngineToUse, testPrompt, workDir, {
+		modelOverride: testModel,
+	});
 
 	const testOutput = testResult.success
 		? testResult.response || "Tests completed"
@@ -255,7 +281,9 @@ export async function executeWithOrchestrator(
 	// Step 3: Tests failed - run main model again with fix instructions
 	reportProgress("Issues found, requesting fixes...");
 	const fixPrompt = buildFixPrompt(prompt, mainOutput, testOutput);
-	const fixResult = await executeWithRetry(mainEngine, fixPrompt, workDir, { modelOverride: mainModel });
+	const fixResult = await executeWithRetry(mainEngine, fixPrompt, workDir, {
+		modelOverride: mainModel,
+	});
 
 	if (!fixResult.success) {
 		return {
@@ -280,7 +308,11 @@ export async function executeWithOrchestrator(
 /**
  * Check if orchestrator pattern should be used for this task
  */
-export function shouldUseOrchestrator(taskTitle: string, taskDescription: string, testModel?: string): boolean {
+export function shouldUseOrchestrator(
+	taskTitle: string,
+	taskDescription: string,
+	testModel?: string,
+): boolean {
 	if (!testModel) return false;
 
 	const combined = `${taskTitle} ${taskDescription}`.toLowerCase();

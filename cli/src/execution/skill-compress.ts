@@ -11,37 +11,53 @@ import { logDebug } from "../ui/logger.ts";
  * Compress a markdown file by removing excess whitespace and formatting
  */
 export function compressMarkdown(content: string): string {
-	return (
-		content
-			// Remove multiple consecutive blank lines
-			.replace(/\n{3,}/g, "\n\n")
-			// Remove trailing whitespace from lines
-			.replace(/[ \t]+$/gm, "")
-			// Remove whitespace-only lines
-			.replace(/^\s+$/gm, "")
-			// Compress verbose phrases
-			.replace(/Please note that /gi, "Note: ")
-			.replace(/In order to /gi, "To ")
-			.replace(/Make sure to /gi, "")
-			.replace(/You should /gi, "")
-			.replace(/You must /gi, "Must ")
-			.replace(/It is important to /gi, "")
-			.replace(/Keep in mind that /gi, "")
-			// Remove redundant markdown emphasis in instructions
-			.replace(/\*\*Note\*\*:/g, "Note:")
-			.replace(/\*\*Important\*\*:/g, "Important:")
-			// Technical Jargon Compression
-			.replace(/implementation/gi, "impl")
-			.replace(/information/gi, "info")
-			.replace(/directory/gi, "dir")
-			.replace(/directories/gi, "dirs")
-			.replace(/initialization/gi, "init")
-			.replace(/configuration/gi, "config")
-			.replace(/parameters/gi, "params")
-			.replace(/environment/gi, "env")
-			.replace(/documentation/gi, "docs")
-			.trim()
-	);
+	const segments = content.split(/(```[\s\S]*?```)/g);
+	const compressed = segments
+		.map((segment) => {
+			if (segment.startsWith("```")) {
+				return segment;
+			}
+
+			return segment
+				// Remove multiple consecutive blank lines
+				.replace(/\n{3,}/g, "\n\n")
+				// Remove trailing whitespace from lines
+				.replace(/[ \t]+$/gm, "")
+				// Remove whitespace-only lines
+				.replace(/^\s+$/gm, "")
+				// Compress verbose phrases
+				.replace(/Please note that /gi, "Note: ")
+				.replace(/In order to /gi, "To ")
+				.replace(/Make sure to /gi, "")
+				.replace(/You should /gi, "")
+				.replace(/You must /gi, "Must ")
+				.replace(/It is important to /gi, "")
+				.replace(/Keep in mind that /gi, "")
+				// Remove redundant markdown emphasis in instructions
+				.replace(/\*\*Note\*\*:/g, "Note:")
+				.replace(/\*\*Important\*\*:/g, "Important:")
+				// Technical Jargon Compression
+				.replace(/implementation/gi, "impl")
+				.replace(/information/gi, "info")
+				.replace(/directory/gi, "dir")
+				.replace(/directories/gi, "dirs")
+				.replace(/initialization/gi, "init")
+				.replace(/configuration/gi, "config")
+				.replace(/parameters/gi, "params")
+				.replace(/environment/gi, "env")
+				.replace(/documentation/gi, "docs");
+		})
+		.join("");
+
+	return compressed.trim();
+}
+
+function csvEscape(value: string): string {
+	const escaped = value.replace(/"/g, '""');
+	if (/[",\n\r]/.test(escaped)) {
+		return `"${escaped}"`;
+	}
+	return escaped;
 }
 
 /**
@@ -117,14 +133,11 @@ export function getSkillsAsCsv(workDir: string): string {
 		for (const entry of entries) {
 			if (entry.isFile() && entry.name.endsWith(".md")) {
 				const content = readFileSync(join(srcPath, entry.name), "utf-8");
-				const compressed = compressMarkdown(content).replace(/"/g, '""').replace(/\n/g, " ");
+				const compressed = compressMarkdown(content).replace(/\n/g, " ");
 
 				const name = entry.name.replace(".md", "");
-				const nameNeedsQuotes = name.includes(",") || name.includes('"');
-				const contentNeedsQuotes = compressed.includes(",") || compressed.includes('"');
-
-				const nameFinal = nameNeedsQuotes ? `"${name}"` : name;
-				const contentFinal = contentNeedsQuotes ? `"${compressed}"` : compressed;
+				const nameFinal = csvEscape(name);
+				const contentFinal = csvEscape(compressed);
 
 				rows.push(`${nameFinal},${contentFinal}`);
 			}

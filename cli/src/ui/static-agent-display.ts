@@ -15,6 +15,14 @@ const c = {
 	gry: "\x1b[90m",
 };
 
+function sanitizeTerminalText(value: string): string {
+	return value
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape removal
+		.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal control chars
+		.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+}
+
 export class StaticAgentDisplay {
 	private static instance: StaticAgentDisplay | null = null;
 	private agentProgressMap = new Map<number, AgentProgress>();
@@ -36,7 +44,7 @@ export class StaticAgentDisplay {
 		if (!current) return;
 		if (!current.recentSteps) current.recentSteps = [];
 
-		const cleanStep = step
+		const cleanStep = sanitizeTerminalText(step)
 			.trim()
 			.replace(/^\[RAW OPENCODE OUTPUT\]\s*/i, "")
 			.replace(/^Thinking:\s*/i, "");
@@ -61,7 +69,11 @@ export class StaticAgentDisplay {
 			if (!jsonLine || jsonLine.trim().length === 0) {
 				return;
 			}
-			const parsed = JSON.parse(jsonLine);
+			const normalized = jsonLine.replace(/^\[RAW OPENCODE OUTPUT\]\s*/i, "").trim();
+			if (!normalized.startsWith("{")) {
+				return;
+			}
+			const parsed = JSON.parse(normalized);
 			// Defensive: validate parsed is an object
 			if (!parsed || typeof parsed !== "object") {
 				return;
@@ -212,9 +224,16 @@ export class StaticAgentDisplay {
 	private getActionColor(action: string): string {
 		const lower = action.toLowerCase();
 		if (lower === "tool" || lower === "run" || lower === "execute") return c.yel;
-		if (lower === "read" || lower === "glob" || lower === "grep" || lower === "search" || lower === "analyze")
+		if (
+			lower === "read" ||
+			lower === "glob" ||
+			lower === "grep" ||
+			lower === "search" ||
+			lower === "analyze"
+		)
 			return c.blu;
-		if (lower === "write" || lower === "edit" || lower === "create" || lower === "delete") return c.mag;
+		if (lower === "write" || lower === "edit" || lower === "create" || lower === "delete")
+			return c.mag;
 		if (lower === "test" || lower === "build") return c.grn;
 		if (lower === "fix" || lower === "debug") return c.red;
 		return c.wht;
@@ -234,7 +253,8 @@ export class StaticAgentDisplay {
 		const phaseColor = phase === "planning" ? c.cyn : phase === "execution" ? c.mag : c.yel;
 		const phaseTag = `${phaseColor}[${phase.toUpperCase()}]${c.rst}`;
 		const modelTag = `${c.gry}[${c.blu}${model}${c.gry}]${c.rst}`;
-		const title = agent.taskTitle.length > 30 ? `${agent.taskTitle.slice(0, 27)}...` : agent.taskTitle;
+		const title =
+			agent.taskTitle.length > 30 ? `${agent.taskTitle.slice(0, 27)}...` : agent.taskTitle;
 
 		return `${status} ${c.bld}Agent ${agent.agentNum}${c.rst} ${phaseTag} ${c.wht}${title}${c.rst} ${modelTag} ${c.gry}${elapsed}${c.rst}`;
 	}
@@ -259,6 +279,7 @@ export class StaticAgentDisplay {
 				recentSteps: [],
 			});
 		} else {
+			current.taskTitle = taskTitle;
 			current.status = status;
 			if (phase) current.phase = phase;
 			if (modelName) current.modelName = modelName;

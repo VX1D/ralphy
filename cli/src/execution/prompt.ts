@@ -139,7 +139,7 @@ function extractEnvironmentInfo(pkg: {
 	const scripts = pkg.scripts || {};
 
 	return {
-		language: detectLanguage(deps),
+		language: detectLanguage(deps, scripts),
 		framework: detectFramework(pkg.dependencies || {}),
 		buildTool: detectBuildTool(scripts),
 		testFramework: detectTestFramework(deps, scripts),
@@ -148,15 +148,18 @@ function extractEnvironmentInfo(pkg: {
 	};
 }
 
-function detectLanguage(deps: Record<string, string>): string | undefined {
+function detectLanguage(
+	deps: Record<string, string>,
+	scripts: Record<string, string>,
+): string | undefined {
 	if (deps.typescript || deps["@types/node"] || deps["@types/react"]) {
 		return "TypeScript/JavaScript";
 	}
 	if (deps.react || deps.vue || deps.angular || deps.express || deps.fastify) {
 		return "TypeScript/JavaScript";
 	}
-	const pyPackages = ["numpy", "pandas", "django", "flask", "fastapi", "pytest"];
-	if (pyPackages.some((p) => deps[p])) return "Python";
+	const scriptText = Object.values(scripts).join(" ").toLowerCase();
+	if (scriptText.includes("python") || scriptText.includes("pytest")) return "Python";
 	return undefined;
 }
 
@@ -175,14 +178,15 @@ function detectFramework(deps: Record<string, string>): string | undefined {
 }
 
 function detectBuildTool(scripts: Record<string, string>): string | undefined {
-	if (scripts.vite || scripts["vite build"]) return "Vite";
-	if (scripts.webpack) return "Webpack";
-	if (scripts.rollup) return "Rollup";
-	if (scripts.esbuild) return "esbuild";
-	if (scripts["next build"]) return "Next.js Build";
-	if (scripts["nuxt build"]) return "Nuxt.js Build";
-	if (scripts.tsc || scripts.build?.includes("tsc")) return "TypeScript Compiler";
-	if (scripts.build?.includes("bun")) return "Bun";
+	const buildScript = scripts.build?.toLowerCase() || "";
+	if (scripts.vite || /\bvite\b/.test(buildScript)) return "Vite";
+	if (scripts.webpack || /\bwebpack\b/.test(buildScript)) return "Webpack";
+	if (scripts.rollup || /\brollup\b/.test(buildScript)) return "Rollup";
+	if (scripts.esbuild || /\besbuild\b/.test(buildScript)) return "esbuild";
+	if (/\bnext\b/.test(buildScript)) return "Next.js Build";
+	if (/\bnuxt\b/.test(buildScript)) return "Nuxt.js Build";
+	if (scripts.tsc || /\btsc\b/.test(buildScript)) return "TypeScript Compiler";
+	if (/\bbun\b/.test(buildScript)) return "Bun";
 	return undefined;
 }
 

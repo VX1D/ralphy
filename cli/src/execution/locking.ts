@@ -34,13 +34,17 @@ function refreshLock(normalizedPath: string, workDir: string): void {
 	const lockInfo = locks.get(normalizedPath);
 	if (!lockInfo) return;
 
-	lockInfo.timestamp = Date.now();
-	lockInfo.refreshCount++;
+	const updatedLockInfo: LockInfo = {
+		...lockInfo,
+		timestamp: Date.now(),
+		refreshCount: lockInfo.refreshCount + 1,
+	};
 
 	// Update lock file on disk
 	const lockFile = getLockFilePath(normalizedPath, workDir);
 	try {
-		writeFileSync(lockFile, JSON.stringify(lockInfo));
+		writeFileSync(lockFile, JSON.stringify(updatedLockInfo));
+		locks.set(normalizedPath, updatedLockInfo);
 	} catch (err) {
 		logDebug(`Failed to refresh lock ${normalizedPath}: ${err}`);
 	}

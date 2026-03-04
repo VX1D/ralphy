@@ -6,7 +6,14 @@
  * State is persisted in the same format as the input source (YAML, JSON, CSV, MD).
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import YAML from "yaml";
 import { RALPHY_DIR } from "../config/loader.ts";
@@ -60,7 +67,12 @@ export class TaskStateManager {
 	private sourcePath: string;
 	private static readonly STATE_VERSION = 1;
 
-	constructor(workDir: string, sourceType: TaskSourceType, sourcePath: string, format: StateFormat = "yaml") {
+	constructor(
+		workDir: string,
+		sourceType: TaskSourceType,
+		sourcePath: string,
+		format: StateFormat = "yaml",
+	) {
 		this.sourceType = sourceType;
 		this.sourcePath = sourcePath;
 		this.format = format;
@@ -90,14 +102,11 @@ export class TaskStateManager {
 			if (task.state === TaskState.RUNNING) {
 				logDebug(`Resetting interrupted task ${task.id} from RUNNING to PENDING`);
 				task.state = TaskState.PENDING;
-				// Reset attemptCount on fresh program start to prevent accumulation
-				// This ensures retries don't persist across program restarts
-				task.attemptCount = 0;
 				resetCount++;
 			}
 		}
 		if (resetCount > 0) {
-			logDebug(`Reset ${resetCount} interrupted tasks to PENDING (attempt counts cleared)`);
+			logDebug(`Reset ${resetCount} interrupted tasks to PENDING`);
 		}
 
 		// Merge with new tasks from source
@@ -454,7 +463,9 @@ export class TaskStateManager {
 			}
 
 			if (data.version !== TaskStateManager.STATE_VERSION) {
-				logDebug(`Migrating state file from version ${data.version} to ${TaskStateManager.STATE_VERSION}`);
+				logDebug(
+					`Migrating state file from version ${data.version} to ${TaskStateManager.STATE_VERSION}`,
+				);
 			}
 
 			// Validate tasks is an object before creating Map
@@ -476,18 +487,61 @@ export class TaskStateManager {
 	 * Convert state to CSV format.
 	 */
 	private toCSV(data: StateFileFormat): string {
-		const headers = ["key", "id", "title", "state", "attemptCount", "lastAttemptTime", "errorHistory"];
+		const headers = [
+			"key",
+			"id",
+			"title",
+			"state",
+			"attemptCount",
+			"lastAttemptTime",
+			"errorHistory",
+		];
 		const rows = Object.entries(data.tasks).map(([key, task]) => [
-			key,
-			task.id,
-			task.title,
-			task.state,
-			task.attemptCount,
-			task.lastAttemptTime ?? "",
-			task.errorHistory.join("|"),
+			this.escapeCsvField(key),
+			this.escapeCsvField(task.id),
+			this.escapeCsvField(task.title),
+			this.escapeCsvField(task.state),
+			this.escapeCsvField(String(task.attemptCount)),
+			this.escapeCsvField(task.lastAttemptTime != null ? String(task.lastAttemptTime) : ""),
+			this.escapeCsvField(task.errorHistory.join("|")),
 		]);
 
 		return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+	}
+
+	private escapeCsvField(value: string): string {
+		if (!/[",\n\r]/.test(value)) {
+			return value;
+		}
+		return `"${value.replace(/"/g, '""')}"`;
+	}
+
+	private parseCsvLine(line: string): string[] {
+		const parts: string[] = [];
+		let current = "";
+		let inQuotes = false;
+
+		for (let i = 0; i < line.length; i++) {
+			const char = line[i];
+			if (char === '"') {
+				if (inQuotes && line[i + 1] === '"') {
+					current += '"';
+					i++;
+				} else {
+					inQuotes = !inQuotes;
+				}
+				continue;
+			}
+			if (char === "," && !inQuotes) {
+				parts.push(current);
+				current = "";
+				continue;
+			}
+			current += char;
+		}
+
+		parts.push(current);
+		return parts;
 	}
 
 	/**
@@ -496,7 +550,11 @@ export class TaskStateManager {
 	private fromCSV(content: string): StateFileFormat {
 		const lines = content.trim().split("\n");
 		if (lines.length < 2) {
-			return { version: TaskStateManager.STATE_VERSION, lastUpdated: new Date().toISOString(), tasks: {} };
+			return {
+				version: TaskStateManager.STATE_VERSION,
+				lastUpdated: new Date().toISOString(),
+				tasks: {},
+			};
 		}
 
 		const tasks: Record<string, TaskStateEntry> = {};
@@ -504,7 +562,7 @@ export class TaskStateManager {
 			const line = lines[i];
 			if (!line || line.trim().length === 0) continue;
 
-			const parts = line.split(",");
+			const parts = this.parseCsvLine(line);
 			if (parts.length >= 4) {
 				const key = parts[0]?.trim();
 				const id = parts[1]?.trim();
@@ -528,8 +586,10 @@ export class TaskStateManager {
 					id: id || key,
 					title: title || "Unknown",
 					state: state,
-					attemptCount: attemptCount ? parseInt(attemptCount, 10) || 0 : 0,
-					lastAttemptTime: lastAttemptTime ? parseInt(lastAttemptTime, 10) || undefined : undefined,
+					attemptCount: attemptCount ? Number.parseInt(attemptCount, 10) || 0 : 0,
+					lastAttemptTime: lastAttemptTime
+						? Number.parseInt(lastAttemptTime, 10) || undefined
+						: undefined,
 					errorHistory: errorHistory ? errorHistory.split("|").filter(Boolean) : [],
 				};
 			}
@@ -557,7 +617,7 @@ export class TaskStateManager {
 				lines.push(`- **Last Attempt**: ${new Date(task.lastAttemptTime).toISOString()}`);
 			}
 			if (task.errorHistory.length > 0) {
-				lines.push(`- **Errors**: ${task.errorHistory.join(", ")}`);
+				lines.push(`- **Errors**: ${JSON.stringify(task.errorHistory)}`);
 			}
 			lines.push("");
 		}
@@ -590,13 +650,27 @@ export class TaskStateManager {
 				if (line.startsWith("- **State**: ")) {
 					task.state = line.replace("- **State**: ", "").trim() as TaskState;
 				} else if (line.startsWith("- **Attempt Count**: ")) {
-					task.attemptCount = parseInt(line.replace("- **Attempt Count**: ", ""), 10) || 0;
+					task.attemptCount = Number.parseInt(line.replace("- **Attempt Count**: ", ""), 10) || 0;
 				} else if (line.startsWith("- **Last Attempt**: ")) {
 					const dateStr = line.replace("- **Last Attempt**: ", "").trim();
 					task.lastAttemptTime = new Date(dateStr).getTime();
 				} else if (line.startsWith("- **Errors**: ")) {
-					task.errorHistory = line
-						.replace("- **Errors**: ", "")
+					const errorsRaw = line.replace("- **Errors**: ", "").trim();
+					if (errorsRaw.startsWith("[")) {
+						try {
+							const parsed = JSON.parse(errorsRaw);
+							if (Array.isArray(parsed)) {
+								task.errorHistory = parsed
+									.map((item) => String(item))
+									.filter((item) => item.length > 0);
+								continue;
+							}
+						} catch {
+							// Fall back to legacy format parsing below.
+						}
+					}
+
+					task.errorHistory = errorsRaw
 						.split(", ")
 						.map((s) => s.trim())
 						.filter(Boolean);
@@ -604,9 +678,10 @@ export class TaskStateManager {
 			}
 
 			// Extract ID from key
-			const idMatch = key.match(/[^:]+:[^:]+:(.+)/);
-			if (idMatch) {
-				task.id = idMatch[1];
+			const firstColon = key.indexOf(":");
+			const secondColon = firstColon === -1 ? -1 : key.indexOf(":", firstColon + 1);
+			if (secondColon !== -1 && secondColon + 1 < key.length) {
+				task.id = key.slice(secondColon + 1);
 			}
 
 			tasks[key] = task;

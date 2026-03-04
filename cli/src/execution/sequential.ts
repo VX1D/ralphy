@@ -104,6 +104,16 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 		totalOutputTokens: 0,
 	};
 
+	if (dryRun && !options.debugOpenCode) {
+		const dryRunTasks = await taskSource.getAllTasks();
+		for (const task of dryRunTasks) {
+			const spinner = new ProgressSpinner(task.title, activeSettings);
+			spinner.success("(dry run) Skipped");
+			result.tasksCompleted++;
+		}
+		return result;
+	}
+
 	// Initialize task state manager if not provided
 	let taskStateManager: TaskStateManager;
 	if (externalTaskStateManager) {
@@ -126,10 +136,6 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 	let iteration = 0;
 	let abortDueToRetryableFailure = false;
 	let taskIndex = new Map<string, Task>();
-
-	for (const task of await taskSource.getAllTasks()) {
-		taskIndex.set(task.id, task);
-	}
 	// BUG FIX: Safety counter to prevent infinite loops
 	let safetyCounter = 0;
 	const MAX_SAFETY_ITERATIONS = 10000;
