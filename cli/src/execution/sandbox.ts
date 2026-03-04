@@ -174,17 +174,26 @@ export function validatePath(baseDir: string, targetPath: string, maxDepth = 10)
 		return null;
 	}
 
-	// SECURITY: Use realpathSync to resolve symlinks and get canonical paths
-	// This prevents path traversal attacks using symlinks
-	let absoluteBase: string;
+	const absoluteBase = realpathSync(resolve(baseDir));
+	const candidateTarget = resolve(absoluteBase, targetPath);
+
+	// SECURITY: Resolve existing targets with realpath. For non-existent targets,
+	// require parent directories to resolve inside baseDir to prevent symlink escapes.
 	let absoluteTarget: string;
-	try {
-		absoluteBase = realpathSync(resolve(baseDir));
-		absoluteTarget = realpathSync(resolve(baseDir, targetPath));
-	} catch {
-		// If realpath fails (e.g., path doesn't exist), fall back to resolve
-		absoluteBase = resolve(baseDir);
-		absoluteTarget = resolve(baseDir, targetPath);
+	if (existsSync(candidateTarget)) {
+		absoluteTarget = realpathSync(candidateTarget);
+	} else {
+		const parentDir = dirname(candidateTarget);
+		const resolvedParent = existsSync(parentDir) ? realpathSync(parentDir) : null;
+		if (!resolvedParent) {
+			logDebug(`Security: Parent directory does not exist for path: ${targetPath}`);
+			return null;
+		}
+		if (resolvedParent !== absoluteBase && !resolvedParent.startsWith(`${absoluteBase}${sep}`)) {
+			logDebug(`Security: Parent directory escapes base after symlink resolution: ${targetPath}`);
+			return null;
+		}
+		absoluteTarget = join(resolvedParent, relative(parentDir, candidateTarget));
 	}
 
 	// Check if the resolved path is within the base directory
@@ -850,10 +859,7 @@ export async function copyBackPlannedFilesParallel(
 export async function cleanupSandbox(sandboxDir: string): Promise<void> {
 	const allowedBase = resolve(join(tmpdir(), "ralphy-sandboxes"));
 	const resolvedSandbox = resolve(sandboxDir);
-	if (
-		resolvedSandbox === allowedBase ||
-		!resolvedSandbox.startsWith(`${allowedBase}${sep}`)
-	) {
+	if (resolvedSandbox === allowedBase || !resolvedSandbox.startsWith(`${allowedBase}${sep}`)) {
 		logDebug(`Security: refusing to cleanup path outside sandbox base: ${sandboxDir}`);
 		return;
 	}

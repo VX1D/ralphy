@@ -114,10 +114,7 @@ function isTrackedWorktreePathSafe(workDir: string, worktreeDir: string): boolea
 	const worktreeBase = getWorktreeBase(workDir);
 	const baseResolved = resolve(worktreeBase);
 	const targetResolved = resolve(worktreeDir);
-	return (
-		targetResolved !== baseResolved &&
-		targetResolved.startsWith(`${baseResolved}${sep}`)
-	);
+	return targetResolved !== baseResolved && targetResolved.startsWith(`${baseResolved}${sep}`);
 }
 
 /**
@@ -493,7 +490,7 @@ export async function runParallel(
 			const plannedTasks = filteredTasks.map((t) => taskToPlannedTask(t));
 			const tasksWithFiles = plannedTasks.filter((pt) => pt.files.length > 0);
 
-			if (tasksWithFiles.length === tasks.length && tasksWithFiles.length > 1) {
+			if (tasksWithFiles.length === filteredTasks.length && tasksWithFiles.length > 1) {
 				logDebug("Using graph coloring for conflict-aware batching...");
 				const graph = buildConflictGraph(plannedTasks);
 				const colors = colorGraph(plannedTasks, graph);
@@ -525,27 +522,23 @@ export async function runParallel(
 				continue;
 			}
 
-			// Initialize agent progress map for static display
-			for (const task of batch) {
-				const agentNum = getNextAgentNum();
-				const initialPhase = planningModel ? "planning" : "execution";
-				const initialModel = planningModel ? "planning" : "main";
-				staticAgentDisplay.setAgentStatus(
-					agentNum,
-					task.title,
-					"working",
-					initialPhase,
-					initialModel,
-				);
-			}
-
 			// Claim tasks for execution before starting
-			const claimedTasks: Task[] = [];
+			const claimedTasks: Array<{ task: Task; agentNum: number }> = [];
 			for (const task of batch) {
 				// Pass maxRetries for atomic check-and-claim
 				const claimed = await taskStateManager.claimTaskForExecution(task.id);
 				if (claimed) {
-					claimedTasks.push(task);
+					const agentNum = getNextAgentNum();
+					const initialPhase = planningModel ? "planning" : "execution";
+					const initialModel = planningModel ? "planning" : "main";
+					staticAgentDisplay.setAgentStatus(
+						agentNum,
+						task.title,
+						"working",
+						initialPhase,
+						initialModel,
+					);
+					claimedTasks.push({ task, agentNum });
 				} else {
 					logDebug(
 						`Task "${task.title}" is already being executed or exceeded max attempts, skipping...`,
@@ -559,8 +552,7 @@ export async function runParallel(
 			}
 
 			// Parallel execution
-			const promises = claimedTasks.map((task) => {
-				const agentNum = globalAgentNum - (claimedTasks.length - claimedTasks.indexOf(task) - 1);
+			const promises = claimedTasks.map(({ task, agentNum }) => {
 				const agentOptions: AgentRunnerOptions = {
 					engine,
 					task,
@@ -622,7 +614,8 @@ export async function runParallel(
 			for (let i = 0; i < results.length; i++) {
 				const res = results[i];
 				// BUG FIX: Add bounds check to prevent undefined task access
-				const task = claimedTasks[i];
+				const claimedTask = claimedTasks[i];
+				const task = claimedTask?.task;
 				if (!task) {
 					logError(`Task index ${i} out of bounds (claimedTasks.length=${claimedTasks.length})`);
 					continue;
@@ -643,6 +636,7 @@ export async function runParallel(
 							`Planning phase failed for task "${task.title}", transitioning to FAILED state`,
 						);
 						await taskStateManager.transitionState(task.id, TaskState.FAILED, String(error));
+						await taskSource.markComplete(task.id);
 						clearDeferredTask(taskSource.type, task, workDir, prdFile);
 						continue;
 					}
@@ -760,12 +754,12 @@ export async function runParallel(
 			// Cleanup all worktrees in parallel with coordination
 			if (worktreesToCleanup.length > 0) {
 				const cleanupResults = await Promise.allSettled(
-				worktreesToCleanup.map(({ worktreeDir, branchName }) =>
-					cleanupAgentWorktree(worktreeDir, branchName, workDir).then((cleanup) => ({
-						worktreeDir,
-						leftInPlace: cleanup.leftInPlace,
-					})),
-				),
+					worktreesToCleanup.map(({ worktreeDir, branchName }) =>
+						cleanupAgentWorktree(worktreeDir, branchName, workDir).then((cleanup) => ({
+							worktreeDir,
+							leftInPlace: cleanup.leftInPlace,
+						})),
+					),
 				);
 
 				for (let i = 0; i < cleanupResults.length; i++) {

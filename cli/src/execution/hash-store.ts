@@ -11,8 +11,8 @@ import {
 	createWriteStream,
 	existsSync,
 	mkdirSync,
-	readdirSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	statSync,
 	writeFileSync,
@@ -20,30 +20,38 @@ import {
 import { join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip, createGzip } from "node:zlib";
-import { ENABLE_HASH_STORE, HASH_STORE_DIR, HASH_STORE_MAX_AGE_MS, MAX_FILE_SIZE_FOR_HASH } from "../config/constants.ts";
+import {
+	ENABLE_HASH_STORE,
+	HASH_STORE_DIR,
+	HASH_STORE_MAX_AGE_MS,
+	MAX_FILE_SIZE_FOR_HASH,
+} from "../config/constants.ts";
 import { logDebug, logError, logWarn } from "../ui/logger.js";
 
 const COMPRESSION_TIMEOUT_MS = 30000; // 30 second timeout for compression/decompression
 
 /**
- * Create a promise that rejects after a timeout
- */
-function createTimeoutPromise(timeoutMs: number, operation: string): Promise<never> {
-	return new Promise((_, reject) => {
-		const timer = setTimeout(() => {
-			reject(new Error(`${operation} timed out after ${timeoutMs}ms`));
-		}, timeoutMs);
-
-		// Prevent memory leak if promise settles before timeout
-		return () => clearTimeout(timer);
-	});
-}
-
-/**
  * Wrap a promise with a timeout
  */
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
-	return Promise.race([promise, createTimeoutPromise(timeoutMs, operation)]);
+async function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	operation: string,
+): Promise<T> {
+	let timeoutId: NodeJS.Timeout | undefined;
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timeoutId = setTimeout(() => {
+			reject(new Error(`${operation} timed out after ${timeoutMs}ms`));
+		}, timeoutMs);
+	});
+
+	try {
+		return await Promise.race([promise, timeoutPromise]);
+	} finally {
+		if (timeoutId) {
+			clearTimeout(timeoutId);
+		}
+	}
 }
 
 // ============================================================================
@@ -260,7 +268,9 @@ export class FileHashStore {
 					const data = readFileSync(this.indexPath, "utf-8");
 					// SECURITY: Validate JSON before parsing to prevent prototype pollution
 					if (data.match(/"__(proto|constructor|prototype)"__/)) {
-						throw new Error("Hash index file contains potentially malicious prototype pollution keys");
+						throw new Error(
+							"Hash index file contains potentially malicious prototype pollution keys",
+						);
 					}
 					try {
 						this.index = JSON.parse(data) as TaskHashIndex;
@@ -392,7 +402,9 @@ export class FileHashStore {
 			// Update index
 			this.index.files[filePath] = {
 				hash,
-				hashPath: alreadyExists ? hashPath : `${hash}${compress && stats.size >= compressionThreshold ? ".gz" : ""}`,
+				hashPath: alreadyExists
+					? hashPath
+					: `${hash}${compress && stats.size >= compressionThreshold ? ".gz" : ""}`,
 				metadataPath: join("content", `${hash}.json`),
 			};
 			this.index.updatedAt = Date.now();
@@ -615,7 +627,9 @@ export class FileHashStore {
 			const metadataPath = join(this.taskDir, reference.metadataPath);
 			if (existsSync(metadataPath)) {
 				try {
-					const metadata: HashMetadata = JSON.parse(readFileSync(metadataPath, "utf-8")) as HashMetadata;
+					const metadata: HashMetadata = JSON.parse(
+						readFileSync(metadataPath, "utf-8"),
+					) as HashMetadata;
 					totalSize += metadata.originalSize;
 				} catch {
 					// Skip files with corrupted metadata
@@ -771,7 +785,10 @@ export class FileHashStore {
  * @param projectRoot - Project root directory
  * @returns Initialized FileHashStore instance
  */
-export async function createHashStore(taskId: string, projectRoot?: string): Promise<FileHashStore> {
+export async function createHashStore(
+	taskId: string,
+	projectRoot?: string,
+): Promise<FileHashStore> {
 	const store = new FileHashStore(taskId, projectRoot);
 	await store.initialize();
 	return store;
