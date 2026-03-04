@@ -248,7 +248,7 @@ export class TaskStateManager {
 		const key = this.buildTaskKey(taskId);
 		const task = this.tasks.get(key);
 		if (!task) return false;
-		return task.attemptCount > maxRetries;
+		return task.attemptCount >= maxRetries;
 	}
 
 	/**

@@ -31,6 +31,7 @@ export class StaticAgentDisplay {
 	private displayInterval: NodeJS.Timeout | null = null;
 
 	constructor() {
+		StaticAgentDisplay.instance?.stopDisplay();
 		StaticAgentDisplay.instance = this;
 	}
 	static getInstance(): StaticAgentDisplay | null {

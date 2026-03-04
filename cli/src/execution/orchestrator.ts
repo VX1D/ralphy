@@ -15,6 +15,17 @@ import {
 	waitForConnectionRestore,
 } from "./retry.ts";
 
+const MAX_CONTEXT_CHARS = 12000;
+
+function truncateContext(mainOutput: string): string {
+	if (mainOutput.length <= MAX_CONTEXT_CHARS) {
+		return mainOutput;
+	}
+
+	const omitted = mainOutput.length - MAX_CONTEXT_CHARS;
+	return `${mainOutput.slice(0, MAX_CONTEXT_CHARS)}\n\n[...output truncated, ${omitted} chars omitted...]`;
+}
+
 export interface OrchestratorOptions {
 	mainEngine: AIEngine;
 	testEngine?: AIEngine;
@@ -147,7 +158,7 @@ function buildTestPrompt(mainOutput: string, _workDir: string): string {
 
 ## Previous Implementation Work
 
-${mainOutput.slice(0, 1500)}
+${truncateContext(mainOutput)}
 
 ## Your Task
 
@@ -189,7 +200,7 @@ function buildFixPrompt(originalPrompt: string, mainOutput: string, testResults:
 
 ## Your Previous Implementation
 
-${mainOutput.slice(0, 1500)}
+${truncateContext(mainOutput)}
 
 ## Test Results
 
