@@ -94,8 +94,8 @@ export function jsonToCsv(jsonContent: string): string {
 	let data: unknown;
 	try {
 		data = JSON.parse(jsonContent);
-	} catch {
-		return "id,title,done,group,desc\n";
+	} catch (err) {
+		throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
 	}
 	const tasks: JsonTask[] = Array.isArray(data)
 		? data

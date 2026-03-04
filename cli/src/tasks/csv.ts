@@ -154,6 +154,11 @@ export class CsvTaskSource implements TaskSource {
 		const resolvedIdIndex = idIndex >= 0 ? idIndex : 0;
 		const resolvedTitleIndex = titleIndex >= 0 ? titleIndex : 1;
 		const resolvedDoneIndex = doneIndex >= 0 ? doneIndex : 2;
+		if (doneIndex < 0) {
+			console.warn(
+				`CSV markComplete: no 'done'/'completed' header found for ${this.filePath}, falling back to column index 2.`,
+			);
+		}
 
 		let updated = false;
 		for (let i = 1; i < rows.length; i++) {
