@@ -38,7 +38,7 @@ export class CursorEngine extends BaseAIEngine {
 			this.cliCommand,
 			args,
 			workDir,
-			undefined,
+			this.getEnv(options),
 			stdinContent,
 		);
 
@@ -136,7 +136,7 @@ export class CursorEngine extends BaseAIEngine {
 					onProgress(step);
 				}
 			},
-			undefined,
+			this.getEnv(options),
 			stdinContent,
 		);
 

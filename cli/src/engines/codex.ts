@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { BaseAIEngine, execCommand, formatCommandError } from "./base.ts";
@@ -16,7 +17,10 @@ export class CodexEngine extends BaseAIEngine {
 		options?: EngineOptions,
 	): { args: string[]; stdinContent?: string; lastMessageFile: string } {
 		// Codex uses a separate file for the last message
-		const lastMessageFile = join(workDir, `.codex-last-message-${Date.now()}-${process.pid}.txt`);
+		const lastMessageFile = join(
+			workDir,
+			`.codex-last-message-${Date.now()}-${process.pid}-${randomUUID()}.txt`,
+		);
 
 		const baseArgs = ["exec", "--full-auto", "--json", "--output-last-message", lastMessageFile];
 		if (options?.modelOverride) {
@@ -43,7 +47,7 @@ export class CodexEngine extends BaseAIEngine {
 				this.cliCommand,
 				args,
 				workDir,
-				undefined,
+				this.getEnv(options),
 				stdinContent,
 			);
 

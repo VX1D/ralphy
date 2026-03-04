@@ -38,7 +38,7 @@ export class DroidEngine extends BaseAIEngine {
 			this.cliCommand,
 			args,
 			workDir,
-			undefined,
+			this.getEnv(options),
 			stdinContent,
 		);
 
@@ -126,7 +126,7 @@ export class DroidEngine extends BaseAIEngine {
 					onProgress(step);
 				}
 			},
-			undefined,
+			this.getEnv(options),
 			stdinContent,
 		);
 

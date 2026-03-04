@@ -120,7 +120,12 @@ export class CopilotEngine extends BaseAIEngine {
 			const pIndex = args.indexOf("-p");
 			tempFile = pIndex >= 0 && pIndex < args.length - 1 ? args[pIndex + 1] : undefined;
 
-			const { stdout, stderr, exitCode } = await execCommand(this.cliCommand, args, workDir);
+			const { stdout, stderr, exitCode } = await execCommand(
+				this.cliCommand,
+				args,
+				workDir,
+				this.getEnv(options),
+			);
 			const durationMs = Date.now() - startTime;
 
 			const output = stdout + stderr;
@@ -239,15 +244,21 @@ export class CopilotEngine extends BaseAIEngine {
 			const pIndex = args.indexOf("-p");
 			tempFile = pIndex >= 0 && pIndex < args.length - 1 ? args[pIndex + 1] : undefined;
 
-			const { exitCode } = await execCommandStreaming(this.cliCommand, args, workDir, (line) => {
-				outputLines.push(line);
+			const { exitCode } = await execCommandStreaming(
+				this.cliCommand,
+				args,
+				workDir,
+				(line) => {
+					outputLines.push(line);
 
-				// Detect and report step changes
-				const step = detectStepFromOutput(line);
-				if (step) {
-					onProgress(step);
-				}
-			});
+					// Detect and report step changes
+					const step = detectStepFromOutput(line);
+					if (step) {
+						onProgress(step);
+					}
+				},
+				this.getEnv(options),
+			);
 
 			const durationMs = Date.now() - startTime;
 			const output = outputLines.join("\n");

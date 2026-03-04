@@ -24,7 +24,6 @@ export {
 } from "./parsers.ts";
 export { validateArgs, validateCommand, validateCommandAndArgs } from "./validation.ts";
 
-
 const DEBUG = process.env.RALPHY_DEBUG === "true";
 
 function debugLog(...args: unknown[]): void {
@@ -195,22 +194,16 @@ export abstract class BaseAIEngine implements AIEngine {
 					childProcess && childProcess.exited
 						? childProcess.exited
 						: new Promise<number>((resolve) => {
-							const nodeProcess = childProcess as unknown as import("node:child_process").ChildProcess;
-							nodeProcess.once("close", (code) => resolve(code ?? 1));
-							nodeProcess.once("error", () => resolve(1));
-						});
+								const nodeProcess = childProcess as unknown as import(
+									"node:child_process",
+								).ChildProcess;
+								nodeProcess.once("close", (code) => resolve(code ?? 1));
+								nodeProcess.once("error", () => resolve(1));
+							});
 
-				const [resolvedExitCode] = await Promise.all([
-					exitedPromise,
-					readStdout(),
-					readStderr(),
-				]);
+				const [resolvedExitCode] = await Promise.all([exitedPromise, readStdout(), readStderr()]);
 				exitCode = resolvedExitCode ?? 1;
 			} else {
-				// BUG FIX: Clear timeout before fallback to non-streaming mode
-				// since we're not using the streaming childProcess in this branch
-				clearTimeout(timeoutId);
-
 				// BUG FIX: Use stdinContent instead of undefined 'needsStdin' variable
 				const result = await execCommand(this.cliCommand, args, workDir, env, stdinContent);
 				stdout = result.stdout;

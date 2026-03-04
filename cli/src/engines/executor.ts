@@ -111,7 +111,9 @@ async function execWithBun(
 		env: { ...process.env, ...(env || {}) },
 	});
 
-	debugLog(`execCommand: process spawned, PID=${proc.pid}, stdinContent length=${stdinContent?.length || 0}`);
+	debugLog(
+		`execCommand: process spawned, PID=${proc.pid}, stdinContent length=${stdinContent?.length || 0}`,
+	);
 
 	// Write stdin content if provided
 	if (stdinContent && proc.stdin) {
@@ -211,23 +213,87 @@ export async function execCommandStreaming(
 	args: string[],
 	workDir: string,
 	onLine: (line: string) => void,
-	_env?: Record<string, string>,
+	env?: Record<string, string>,
 	stdinContent?: string,
 ): Promise<{ exitCode: number }> {
 	debugLog(`execCommandStreaming (legacy): ${command} ${args.join(" ")}`);
 
-	// Use non-streaming exec but capture output line by line
-	const result = await execCommand(command, args, workDir, _env, stdinContent);
+	const {
+		process: childProcess,
+		stdout,
+		stderr,
+	} = await execCommandStreamingNew(command, args, workDir, env, stdinContent);
 
-	// Emit each line to the callback
-	const lines = `${result.stdout}\n${result.stderr}`.split("\n");
-	for (const line of lines) {
-		if (line.trim()) {
-			onLine(line);
+	const timeout = Number(globalThis.process.env.RALPHY_EXECUTION_TIMEOUT || 30 * 60 * 1000);
+	let timedOut = false;
+
+	const timeoutId = setTimeout(() => {
+		timedOut = true;
+		try {
+			childProcess.kill("SIGTERM");
+		} catch {
+			// no-op
 		}
-	}
 
-	return { exitCode: result.exitCode };
+		setTimeout(() => {
+			if (!timedOut) return;
+			try {
+				childProcess.kill("SIGKILL");
+			} catch {
+				// no-op
+			}
+		}, 3000);
+	}, timeout);
+
+	const readStreamLines = async (stream: ReadableStream<Uint8Array> | null): Promise<void> => {
+		if (!stream) return;
+		const reader = stream.getReader();
+		const decoder = new TextDecoder();
+		let buffer = "";
+
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split("\n");
+				buffer = lines.pop() ?? "";
+				for (const line of lines) {
+					if (line.trim()) {
+						onLine(line);
+					}
+				}
+			}
+
+			buffer += decoder.decode();
+			if (buffer.trim()) {
+				onLine(buffer);
+			}
+		} finally {
+			reader.releaseLock();
+		}
+	};
+
+	const exitPromise = childProcess.exited
+		? childProcess.exited
+		: new Promise<number>((resolve) => {
+				(childProcess as import("node:child_process").ChildProcess).once("close", (code) => {
+					resolve(code ?? 1);
+				});
+				(childProcess as import("node:child_process").ChildProcess).once("error", () => {
+					resolve(1);
+				});
+			});
+
+	const [exitCode] = await Promise.all([
+		exitPromise,
+		readStreamLines(stdout),
+		readStreamLines(stderr),
+	]);
+	clearTimeout(timeoutId);
+	timedOut = false;
+
+	return { exitCode: timedOut ? 1 : (exitCode ?? 1) };
 }
 
 /**

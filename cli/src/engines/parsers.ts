@@ -152,12 +152,18 @@ export function checkForErrors(output: string): string | null {
 	}
 
 	// Secondary check for common fatal strings
-	if (
-		output.includes("Permission denied") ||
-		output.includes("command not found") ||
-		output.toLowerCase().includes("providermodelnotfounderror")
-	) {
-		return output.trim().split("\n").pop() || "Access or command error";
+	const fatalTerms = ["Permission denied", "command not found"];
+	const fatalLine = output.split("\n").find((line) => {
+		const trimmedLine = line.trim();
+		const lowerLine = trimmedLine.toLowerCase();
+		const hasFatalPrefix = /^(fatal:|error:|err:|\/bin\/sh:|sh:|bash:|zsh:)/i.test(trimmedLine);
+		return (
+			(hasFatalPrefix && fatalTerms.some((term) => lowerLine.includes(term.toLowerCase()))) ||
+			lowerLine.includes("providermodelnotfounderror")
+		);
+	});
+	if (fatalLine) {
+		return fatalLine.trim() || "Access or command error";
 	}
 
 	return null;
