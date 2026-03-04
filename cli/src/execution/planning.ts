@@ -163,7 +163,8 @@ export function savePlanningCache(
 }
 
 export function generateTaskHash(task: Task): string {
-	return `${task.id}:${task.title}`.replace(/[^a-zA-Z0-9]/g, "-");
+	const raw = `${task.id}:${task.title}`;
+	return createHash("sha256").update(raw).digest("hex").slice(0, 16);
 }
 
 export function normalizePlannedPath(filePath: string): string {
