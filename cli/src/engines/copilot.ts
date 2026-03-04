@@ -304,9 +304,9 @@ export class CopilotEngine extends BaseAIEngine {
 			};
 		}
 
-		// Only check for specific CLI errors, not general "Error:" in response content
+		// Check for CLI errors
 		const error = checkForErrors(output);
-		if (error && !response.toLowerCase().includes("here's the fix")) {
+		if (error) {
 			return {
 				success: false,
 				response,

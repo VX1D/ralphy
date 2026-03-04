@@ -73,8 +73,9 @@ export class OpenCodeEngine extends BaseAIEngine {
 
 		const combinedOutput = stdout + stderr;
 
-		// Diagnostics: capture session-related artifacts and environment hints
-		try {
+		// Diagnostics: capture session-related artifacts only when explicit debug is enabled
+		if (options?.debugOpenCode || process.env.RALPHY_DEBUG === "true") {
+			try {
 			const diagLogPath = path.join(workDir, "opencode_diag.log");
 			let sessionId: string | undefined;
 			// Attempt to extract a sessionId from any JSON lines in the output
@@ -129,9 +130,10 @@ export class OpenCodeEngine extends BaseAIEngine {
 				// Log but don't crash on logging failures
 				debugLog(`Failed to write diagnostic log: ${err}`);
 			}
-		} catch (diagErr) {
-			// If diagnostics fail for any reason, do not crash the engine
-			debugLog(`OpenCode: Diagnostic error (non-critical): ${diagErr}`);
+			} catch (diagErr) {
+				// If diagnostics fail for any reason, do not crash the engine
+				debugLog(`OpenCode: Diagnostic error (non-critical): ${diagErr}`);
+			}
 		}
 
 		return this.processCliResult(stdout, stderr, exitCode, workDir);

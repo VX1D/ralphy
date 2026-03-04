@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { BaseAIEngine, execCommand, formatCommandError } from "./base.ts";
-import type { AIResult, EngineOptions } from "./types.ts";
+import type { AIResult, EngineOptions, ProgressCallback } from "./types.ts";
 
 /**
  * Codex AI Engine
@@ -110,11 +110,46 @@ export class CodexEngine extends BaseAIEngine {
 	}
 
 	protected processCliResult(
-		_stdout: string,
-		_stderr: string,
-		_exitCode: number,
+		stdout: string,
+		stderr: string,
+		exitCode: number,
 		_workDir: string,
 	): AIResult {
-		return { success: true, response: "Not implemented", inputTokens: 0, outputTokens: 0 };
+		const output = stdout + stderr;
+
+		if (output.includes('"type":"error"')) {
+			const errorMatch = output.match(/"message":"([^"]+)"/);
+			return {
+				success: false,
+				response: "",
+				inputTokens: 0,
+				outputTokens: 0,
+				error: errorMatch?.[1] || "Unknown error",
+			};
+		}
+
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response: "Task completed",
+				inputTokens: 0,
+				outputTokens: 0,
+				error: formatCommandError(exitCode, output),
+			};
+		}
+
+		return { success: true, response: "Task completed", inputTokens: 0, outputTokens: 0 };
+	}
+
+	async executeStreaming(
+		prompt: string,
+		workDir: string,
+		onProgress: ProgressCallback,
+		options?: EngineOptions,
+	): Promise<AIResult> {
+		onProgress("Running Codex");
+		const result = await this.execute(prompt, workDir, options);
+		onProgress(result.success ? "Completed" : "Failed");
+		return result;
 	}
 }

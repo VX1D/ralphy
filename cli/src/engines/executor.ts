@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { Readable } from "node:stream";
 import { logDebug } from "../ui/logger.ts";
 import { registerProcess } from "../utils/cleanup.ts";
 import { validateCommandAndArgs } from "./validation.ts";
@@ -245,7 +246,7 @@ export async function execCommandStreaming(
 	const result = await execCommand(command, args, workDir, _env, stdinContent);
 
 	// Emit each line to the callback
-	const lines = result.stdout.split("\n");
+	const lines = `${result.stdout}\n${result.stderr}`.split("\n");
 	for (const line of lines) {
 		if (line.trim()) {
 			onLine(line);
@@ -321,9 +322,23 @@ export async function execCommandStreamingNew(
 		proc.stdin.end();
 	}
 
+	const exited = new Promise<number>((resolve) => {
+		proc.once("close", (code) => resolve(code ?? 1));
+		proc.once("error", () => resolve(1));
+	});
+
+	const processWithExit = Object.assign(proc, { exited }) as import("./types.ts").ChildProcess;
+
+	const stdout = proc.stdout
+		? (Readable.toWeb(proc.stdout) as unknown as ReadableStream<Uint8Array>)
+		: null;
+	const stderr = proc.stderr
+		? (Readable.toWeb(proc.stderr) as unknown as ReadableStream<Uint8Array>)
+		: null;
+
 	return {
-		process: proc as import("./types.ts").ChildProcess,
-		stdout: null, // Node streams need different handling
-		stderr: null,
+		process: processWithExit,
+		stdout,
+		stderr,
 	};
 }

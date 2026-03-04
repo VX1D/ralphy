@@ -25,8 +25,6 @@ export {
 export { validateArgs, validateCommand, validateCommandAndArgs } from "./validation.ts";
 
 
-// Check if running in Bun
-const isBun = typeof Bun !== "undefined";
 const DEBUG = process.env.RALPHY_DEBUG === "true";
 
 function debugLog(...args: unknown[]): void {
@@ -153,7 +151,7 @@ export abstract class BaseAIEngine implements AIEngine {
 			let stderr = "";
 			let exitCode = 0;
 
-			if (isBun && result.stdout?.getReader && result.stderr?.getReader) {
+			if (result.stdout?.getReader && result.stderr?.getReader) {
 				const stdoutReader = result.stdout.getReader();
 				const stderrReader = result.stderr.getReader();
 
@@ -193,8 +191,21 @@ export abstract class BaseAIEngine implements AIEngine {
 					}
 				};
 
-				exitCode = childProcess ? (await childProcess.exited) ?? 1 : 1;
-				await Promise.all([readStdout(), readStderr()]);
+				const exitedPromise =
+					childProcess && childProcess.exited
+						? childProcess.exited
+						: new Promise<number>((resolve) => {
+							const nodeProcess = childProcess as unknown as import("node:child_process").ChildProcess;
+							nodeProcess.once("close", (code) => resolve(code ?? 1));
+							nodeProcess.once("error", () => resolve(1));
+						});
+
+				const [resolvedExitCode] = await Promise.all([
+					exitedPromise,
+					readStdout(),
+					readStderr(),
+				]);
+				exitCode = resolvedExitCode ?? 1;
 			} else {
 				// BUG FIX: Clear timeout before fallback to non-streaming mode
 				// since we're not using the streaming childProcess in this branch

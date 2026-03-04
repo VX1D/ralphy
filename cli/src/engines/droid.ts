@@ -168,11 +168,41 @@ export class DroidEngine extends BaseAIEngine {
 	}
 
 	protected processCliResult(
-		_stdout: string,
-		_stderr: string,
-		_exitCode: number,
+		stdout: string,
+		stderr: string,
+		exitCode: number,
 		_workDir: string,
 	): AIResult {
-		return { success: true, response: "Not implemented", inputTokens: 0, outputTokens: 0 };
+		const output = stdout + stderr;
+		const error = checkForErrors(output);
+		if (error) {
+			return {
+				success: false,
+				response: "",
+				inputTokens: 0,
+				outputTokens: 0,
+				error,
+			};
+		}
+
+		const { response, durationMs } = this.parseOutput(output);
+
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response,
+				inputTokens: 0,
+				outputTokens: 0,
+				error: formatCommandError(exitCode, output),
+			};
+		}
+
+		return {
+			success: true,
+			response,
+			inputTokens: 0,
+			outputTokens: 0,
+			cost: durationMs > 0 ? `duration:${durationMs}` : undefined,
+		};
 	}
 }
