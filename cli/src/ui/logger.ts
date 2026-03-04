@@ -1,5 +1,5 @@
-import { appendFileSync } from "node:fs";
-import path from "node:path";
+import { appendFileSync, mkdirSync } from "node:fs";
+import path, { dirname } from "node:path";
 import pc from "picocolors";
 import { sanitizeSecrets } from "../utils/sanitization.ts";
 
@@ -93,6 +93,10 @@ export interface LogSink {
 	write(entry: LogEntry): void;
 }
 
+interface DisposableLogSink extends LogSink {
+	dispose(): void;
+}
+
 /**
  * Default console log sink with colors
  */
@@ -138,6 +142,9 @@ let logSink: LogSink = new ConsoleLogSink();
  * Set a custom log sink for extensible logging
  */
 export function setLogSink(sink: LogSink): void {
+	if (logSink !== sink && typeof (logSink as Partial<DisposableLogSink>).dispose === "function") {
+		(logSink as DisposableLogSink).dispose();
+	}
 	logSink = sink;
 }
 
@@ -264,6 +271,7 @@ export class JsonFileLogSink implements LogSink {
 	constructor(filePath: string, options?: { flushIntervalMs?: number; maxBufferSize?: number }) {
 		// Validate path to prevent path traversal attacks
 		this.filePath = validateLogPath(filePath);
+		mkdirSync(dirname(this.filePath), { recursive: true });
 		this.flushInterval = options?.flushIntervalMs ?? 1000;
 		this.maxBufferSize = options?.maxBufferSize ?? 100;
 
@@ -356,6 +364,14 @@ export class MultiLogSink implements LogSink {
 	addSink(sink: LogSink): void {
 		this.sinks.push(sink);
 	}
+
+	dispose(): void {
+		for (const sink of this.sinks) {
+			if (typeof (sink as Partial<DisposableLogSink>).dispose === "function") {
+				(sink as DisposableLogSink).dispose();
+			}
+		}
+	}
 }
 
 /**
@@ -380,6 +396,12 @@ export class FilteredLogSink implements LogSink {
 	write(entry: LogEntry): void {
 		if (this.levelPriority[entry.level] >= this.levelPriority[this.minLevel]) {
 			this.sink.write(entry);
+		}
+	}
+
+	dispose(): void {
+		if (typeof (this.sink as Partial<DisposableLogSink>).dispose === "function") {
+			(this.sink as DisposableLogSink).dispose();
 		}
 	}
 }

@@ -23,6 +23,10 @@ const RELEVANCE_THRESHOLD = 0.1;
  * Maximum glob pattern length to prevent ReDoS attacks
  */
 const MAX_GLOB_PATTERN_LENGTH = 1000;
+const GLOB_REGEX_CACHE_MAX_ENTRIES = 500;
+const GLOB_REGEX_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const globRegexCache = new Map<string, { regex: RegExp; expiresAt: number }>();
 
 /**
  * File metadata entry in the index
@@ -141,6 +145,12 @@ function globToRegex(pattern: string): RegExp {
 			? pattern.slice(0, MAX_GLOB_PATTERN_LENGTH)
 			: pattern;
 
+	const now = Date.now();
+	const cached = globRegexCache.get(safePattern);
+	if (cached && cached.expiresAt > now) {
+		return cached.regex;
+	}
+
 	// Limit pattern length to prevent ReDoS attacks
 	if (safePattern.length < pattern.length) {
 		logDebug(`Glob pattern too long (${pattern.length} > ${MAX_GLOB_PATTERN_LENGTH}), truncating`);
@@ -169,7 +179,24 @@ function globToRegex(pattern: string): RegExp {
 		regex += "$";
 	}
 
-	return new RegExp(regex, "i");
+	const compiled = new RegExp(regex, "i");
+
+	if (globRegexCache.size >= GLOB_REGEX_CACHE_MAX_ENTRIES) {
+		for (const [key, value] of globRegexCache) {
+			if (value.expiresAt <= now) {
+				globRegexCache.delete(key);
+			}
+		}
+		if (globRegexCache.size >= GLOB_REGEX_CACHE_MAX_ENTRIES) {
+			const oldestKey = globRegexCache.keys().next().value;
+			if (oldestKey) {
+				globRegexCache.delete(oldestKey);
+			}
+		}
+	}
+
+	globRegexCache.set(safePattern, { regex: compiled, expiresAt: now + GLOB_REGEX_CACHE_TTL_MS });
+	return compiled;
 }
 
 /**

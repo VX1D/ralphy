@@ -63,9 +63,18 @@ export function standardizeError(error: unknown): RalphyError {
 	}
 
 	if (error instanceof Error) {
+		const withMetadata = error as Error & {
+			code?: string;
+			context?: Record<string, unknown>;
+			cause?: unknown;
+		};
+
 		return new RalphyError(error.message, "UNKNOWN_ERROR", {
 			originalName: error.name,
 			originalStack: error.stack,
+			...(withMetadata.code ? { originalCode: withMetadata.code } : {}),
+			...(withMetadata.context ? { originalContext: withMetadata.context } : {}),
+			...(withMetadata.cause ? { originalCause: String(withMetadata.cause) } : {}),
 		});
 	}
 
